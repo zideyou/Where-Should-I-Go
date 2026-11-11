@@ -220,8 +220,11 @@ export function filterGroups(groups, { excluded = new Set(), pinned = new Set() 
 /**
  * Split the search results into distinct areas ("plans"). Each area is built
  * around one of the tightest one-of-each combos, and lists every nearby place
- * of each type so the user can choose among them. Areas don't share their core
- * places and their centres are kept apart, so each plan is a different part of town.
+ * of each type so the user can choose among them. Area centres are kept apart,
+ * so each plan is a different part of town, but areas that are close together may
+ * list the same place: anything within an area's radius belongs to it, even if an
+ * earlier area lists it too. A combo whose picks all sit inside one earlier area
+ * adds nothing new, so it is skipped.
  *
  * @param {Array<Array<{lat:number,lng:number}>>} groups  candidate places per search
  * @param {{start?: object, limit?: number, perGroup?: number, minRadiusKm?: number}} opts
@@ -239,11 +242,11 @@ export function bestAreas(groups, { start = null, limit = 5, perGroup = 5, minRa
     combos.sort((a, b) => density[b.picks[0]] - density[a.picks[0]]);
   }
   const areas = [];
-  const used = groups.map(() => new Set()); // places already listed in an earlier area
 
   for (const combo of combos) {
     if (areas.length >= limit) break;
-    if (combo.picks.some((p, g) => used[g].has(p))) continue;
+    // Nothing new: every pick is already listed by one earlier area.
+    if (areas.some((a) => combo.picks.every((p, g) => a.members[g].includes(p)))) continue;
     const pts = combo.picks.map((p, g) => groups[g][p]);
     const center = {
       lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length,
@@ -257,13 +260,12 @@ export function bestAreas(groups, { start = null, limit = 5, perGroup = 5, minRa
     const members = groups.map((group, g) => {
       const near = group
         .map((p, i) => ({ i, d: haversineKm(center, p) }))
-        .filter(({ i, d }) => i !== combo.picks[g] && d <= radiusKm && !used[g].has(i))
+        .filter(({ i, d }) => i !== combo.picks[g] && d <= radiusKm)
         .sort((a, b) => a.d - b.d)
         .slice(0, perGroup - 1)
         .map(({ i }) => i);
       return [combo.picks[g], ...near];
     });
-    members.forEach((m, g) => m.forEach((i) => used[g].add(i)));
     areas.push({ center, radiusKm, picks: combo.picks, order: combo.order, km: combo.km, members });
   }
   return areas;

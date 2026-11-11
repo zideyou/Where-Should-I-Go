@@ -15,7 +15,7 @@ Press **儲存** on a plan (in its card or the map popup) to keep it; the **已�
 
 Each plan is named after the nearest MRT station (Places nearby search), else the road most of its places are on, else the district.
 
-Areas never share places, so each plan really is a different neighbourhood. You can keep (📌) or exclude (🚫) a place, and "在此區域搜尋" re-runs the searches inside the visible map.
+Plan centres are kept apart, so each plan is a different neighbourhood, but plans that are close together can list the same place (marked "也在方案 N"). You can keep (📌) or exclude (🚫) a place, and "在此區域搜尋" re-runs the searches inside the visible map.
 
 ### 2. Plan my stops
 Add the exact places you already want to visit. The app works out the **visiting order with the least travel**. Up to 8 stops the order is guaranteed shortest. Above that it's a close estimate (nearest neighbour + 2-opt).
