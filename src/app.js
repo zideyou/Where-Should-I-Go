@@ -812,6 +812,11 @@ function areaCard(area, idx, selected) {
   return card;
 }
 
+/** 1-based numbers of the other plans that also list place `i` of group `g`. */
+function otherPlansWith(area, g, i) {
+  return (state.areas || []).flatMap((a, n) => (a !== area && a.members[g]?.includes(i) ? [n + 1] : []));
+}
+
 /**
  * One section per searched type, listing the area's nearby places of that type.
  * Tap a place to choose it for the route; pin / block buttons keep or exclude it.
@@ -848,6 +853,13 @@ function areaGroups(area, { details = false } = {}) {
         meta.append(r, "·");
       }
       meta.append(`距中心 ${formatKm(haversineKm(area.center, p), units)}`);
+      const also = otherPlansWith(area, g, i);
+      if (also.length) {
+        const tag = document.createElement("span");
+        tag.className = "shared-tag";
+        tag.textContent = `也在方案 ${also.join("、")}`;
+        meta.append("·", tag);
+      }
       li.append(filterButtons(p, s));
       if (chosen && details) li.append(placeDetails(p.placeId));
       const choose = () => {

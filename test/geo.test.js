@@ -116,17 +116,33 @@ test("bestAreas: one plan per neighbourhood, each listing nearby places of every
   assert.ok(areas[0].km <= areas[1].km);
 });
 
-test("bestAreas: limits places per type and never repeats a place across plans", () => {
+test("bestAreas: limits places per type and keeps plans apart", () => {
   const many = Array.from({ length: 12 }, (_, i) => ({ lat: 0, lng: i * 0.0002 }));
   const areas = bestAreas([many, many], { perGroup: 3 });
-  const seen = new Set();
-  for (const a of areas) {
-    a.members.forEach((m) => assert.ok(m.length <= 3));
-    a.members[0].forEach((i) => {
-      assert.ok(!seen.has(i));
-      seen.add(i);
-    });
+  for (const a of areas) a.members.forEach((m) => assert.ok(m.length <= 3));
+  for (let i = 0; i < areas.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const d = haversineKm(areas[i].center, areas[j].center);
+      assert.ok(d >= Math.max(areas[i].radiusKm, areas[j].radiusKm) - 1e-9);
+    }
   }
+});
+
+test("bestAreas: nearby plans may share a place, far ones don't", () => {
+  const at = (lat, lng) => ({ lat, lng });
+  // Ramen shops ~0.9 km apart east-west; one cafe halfway between them, one far away.
+  const ramen = [at(0, 0), at(0, 0.008), at(0.09, 0)];
+  const cafes = [at(0, 0.004), at(0.09, 0.0005)];
+  const areas = bestAreas([ramen, cafes], { limit: 5 });
+  const withCafe0 = areas.filter((a) => a.members[1].includes(0));
+  assert.ok(withCafe0.length >= 2, "the shared cafe appears in both nearby plans");
+  const far = areas.filter((a) => a.members[1].includes(1));
+  assert.equal(far.length, 1);
+  assert.ok(!far[0].members[1].includes(0));
+  // No plan is just a subset of another one.
+  for (const a of areas)
+    for (const b of areas)
+      if (a !== b) assert.ok(!a.picks.every((p, g) => b.members[g].includes(p)));
 });
 
 test("areaNameFromAddresses: shared road wins, else district", () => {

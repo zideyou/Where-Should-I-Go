@@ -392,6 +392,7 @@ button:disabled { opacity: 0.38; cursor: default; }
 .place.chosen .place-name { color: var(--blue); }
 .place-meta { grid-column: 2; color: var(--text-2); font-size: 0.8125rem; display: flex; flex-wrap: wrap; gap: 0 6px; align-items: center; }
 .place-meta .rating { color: var(--text); }
+.place-meta .shared-tag { color: var(--blue); }
 .stars { color: var(--star); letter-spacing: -1px; }
 .place .filter-btns { grid-column: 3; grid-row: 1 / span 2; display: flex; gap: 2px; }
 .place .details { grid-column: 2 / span 2; }
