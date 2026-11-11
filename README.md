@@ -8,8 +8,10 @@ A small web app that searches several places on Google Maps and finds the ones t
 Type a kind of place into the search bar, or tap a category chip under it (`拉麵`, `咖啡廳`, `書店`…). Each search can return up to 20 results. The app splits the results into up to **5 different areas** of town. Each area plan:
 - is built around the tightest one-of-each group of places in that area
 - lists **several nearby places of each type** (up to 5) so you can pick the one you like; the route updates when you choose
-- shows the area on the map, with the other areas outlined faintly
+- draws **every area as a circle on the map**, labelled 方案 1, 方案 2…; click a circle or its label to open a popup with that plan's filter options (choose a place, keep 📌 or exclude 🚫)
 - has a **路線** button that opens real directions in Google Maps
+
+Press **儲存** on a plan (in its card or the map popup) to keep it; the **已儲存** tab lists saved plans so you can reopen them any time, exactly as saved (places, choices, starting point, travel mode). Saved plans live in this browser's localStorage.
 
 Areas never share places, so each plan really is a different neighbourhood. You can keep (📌) or exclude (🚫) a place, and "在此區域搜尋" re-runs the searches inside the visible map.
 

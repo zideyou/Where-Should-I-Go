@@ -34,6 +34,8 @@ const ICONS = {
   pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 9V4h1V2H7v2h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3"/></svg>',
   block: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2M4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.9 7.9 0 0 1 4 12m8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.9 7.9 0 0 1 20 12c0 4.42-3.58 8-8 8"/></svg>',
   directions: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.71 11.29l-9-9a1 1 0 0 0-1.42 0l-9 9a1 1 0 0 0 0 1.42l9 9a1 1 0 0 0 1.42 0l9-9a1 1 0 0 0 0-1.42M14 14.5V12h-4v3H8v-4c0-.55.45-1 1-1h5V7.5l3.5 3.5z"/></svg>',
+  bookmark: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2m0 15-5-2.18L7 18V5h10z"/></svg>',
+  bookmarked: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2"/></svg>',
   home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>',
 };
 
@@ -48,6 +50,7 @@ const state = {
   areas: null, // results of bestAreas(), plus `choice` (chosen index per group)
   groups: null, // filtered groups the areas index into
   areaSel: 0,
+  popupOpen: false, // the selected area's popup is showing over the map
   lastRoute: null,
   markers: [],
   overlays: [],
@@ -188,7 +191,9 @@ function setupChrome() {
   $("menu-btn").onclick = () => setDrawer(true);
   drawer.querySelectorAll("[data-close]").forEach((el) => (el.onclick = () => setDrawer(false)));
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !drawer.hidden) setDrawer(false);
+    if (e.key !== "Escape") return;
+    if (!drawer.hidden) setDrawer(false);
+    else if (state.popupOpen) closePopup();
   });
 
   // Desktop: collapse the side panel. Phone: draggable bottom sheet.
@@ -208,10 +213,15 @@ function selectTab(name) {
   });
   $("tab-combo").hidden = name !== "combo";
   $("tab-stops").hidden = name !== "stops";
+  $("tab-saved").hidden = name !== "saved";
   $("search-here").hidden = true;
+  closePopup();
   setStatus("");
   if (name === "combo") showAreasOrSearches();
-  else renderStops();
+  else if (name === "saved") {
+    clearMap();
+    renderSaved();
+  } else renderStops();
 }
 
 // ---------- map + theme ----------
@@ -247,6 +257,8 @@ function createMap(center, zoom) {
     if (!programmaticMove) onUserMovedMap();
   });
   map.addListener("idle", () => (programmaticMove = false));
+  // Clicking empty map closes the area popup (clicks on circles don't reach the map).
+  map.addListener("click", () => state.popupOpen && closePopup());
 }
 
 /** Apply a theme change to the page and, if needed, rebuild the map and redraw it. */
@@ -261,12 +273,12 @@ function applyTheme() {
   state.markers = [];
   state.overlays = [];
   if (!$("tab-combo").hidden) {
-    if (state.areas?.length) drawArea(state.areas[state.areaSel], { fit: false });
+    if (state.areas?.length) drawAreas({ fit: false });
     else if (state.searches.length) showSearchResults({ fit: false });
     else if (state.start) addStartMarker();
   } else if (state.lastRoute && $("route-results").childElementCount) {
     drawRoute(state.lastRoute.visit, { fit: false });
-  } else {
+  } else if ($("tab-saved").hidden) {
     renderStops({ fit: false });
   }
 }
@@ -550,7 +562,14 @@ function computeAreas({ msg = "", fit = true, error = false, keepSelection = fal
   state.areas = bestAreas(groups, { start: state.start, limit: MAX_AREAS, perGroup: PLACES_PER_TYPE });
   state.areas.forEach((a) => (a.choice = a.picks.slice()));
   state.areaSel = keepSelection ? Math.min(prevSel, state.areas.length - 1) : 0;
-  renderAreas({ fit });
+  if (!keepSelection || !state.areas.length) closePopup();
+  if (!state.areas.length) {
+    $("combo-results").replaceChildren();
+    showSearchResults({ fit });
+    setStatus("找不到可以組成區域的地點。", true);
+    return;
+  }
+  renderAreas({ fit: fit ? "all" : false });
   const summary = `找到 ${state.areas.length} 個區域，每個方案列出區域內相近的同類型地點。`;
   setStatus(msg ? (error ? msg : `${msg}${summary}`) : summary, error);
 }
@@ -583,10 +602,124 @@ function areaRoute(area) {
   return { visit, km };
 }
 
-function renderAreas({ fit = true } = {}) {
+/**
+ * Show the plans: cards in the panel, every area's circle on the map, and the
+ * selected area's places and route. `fit`: "all" (every area), "selected", or false.
+ */
+function renderAreas({ fit = "selected" } = {}) {
   const box = $("combo-results");
   box.replaceChildren(...state.areas.map((a, idx) => areaCard(a, idx, idx === state.areaSel)));
-  drawArea(state.areas[state.areaSel], { fit });
+  drawAreas({ fit });
+  if (state.popupOpen) renderPopup();
+}
+
+/** Select an area; from the map this also opens its popup with the filter options. */
+function selectArea(idx, { popup = false, fit = "selected" } = {}) {
+  state.areaSel = idx;
+  if (popup) state.popupOpen = true;
+  renderAreas({ fit });
+  $("combo-results").children[idx]?.scrollIntoView?.({ block: "nearest" });
+}
+
+// ---------- area popup (opened from the map) ----------
+function renderPopup() {
+  const area = state.areas?.[state.areaSel];
+  if (!area || $("tab-combo").hidden) return closePopup();
+  const pop = $("area-popup");
+  const route = areaRoute(area);
+  const head = areaHead(area, state.areaSel, route);
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "icon-btn";
+  close.setAttribute("aria-label", "關閉");
+  close.innerHTML = ICONS.close;
+  close.onclick = closePopup;
+  head.append(close);
+  const body = document.createElement("div");
+  body.className = "popup-body";
+  body.append(...areaGroups(area));
+  const actions = actionsRow(route.visit, area);
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "btn";
+  more.textContent = "查看地點詳情";
+  more.onclick = () => {
+    closePopup();
+    if (isPhone()) setSheet("full");
+    else if ($("app").classList.contains("panel-closed")) $("panel-toggle").click();
+    $("combo-results").children[state.areaSel]?.scrollIntoView?.({ block: "start" });
+  };
+  actions.append(more);
+  pop.replaceChildren(head, body, actions);
+  pop.setAttribute("aria-label", `方案 ${state.areaSel + 1} 的篩選選項`);
+  const wasHidden = pop.hidden;
+  pop.hidden = false;
+  if (wasHidden) {
+    if (isPhone()) setSheet("peek");
+    pop.tabIndex = -1;
+    pop.focus({ preventScroll: true }); // keyboard users land in the popup; Esc closes it
+  }
+  keepAreaClearOfPopup(area);
+}
+
+/**
+ * Pan the map if the popup covers the selected area's circle: sideways on desktop
+ * (popup on the right), upwards on phones (popup docked above the bottom sheet).
+ */
+function keepAreaClearOfPopup(area) {
+  if (!map?.getBounds || !map.panBy) return;
+  const b = map.getBounds();
+  if (!b) return;
+  const ne = b.getNorthEast?.();
+  const sw = b.getSouthWest?.();
+  const [north, east] = ne ? [ne.lat(), ne.lng()] : [b.north, b.east];
+  const [south, west] = sw ? [sw.lat(), sw.lng()] : [b.south, b.west];
+  const mapRect = $("map").getBoundingClientRect();
+  const pop = $("area-popup").getBoundingClientRect();
+  const rLat = area.radiusKm / 111.32;
+  const rLng = rLat / Math.cos((area.center.lat * Math.PI) / 180);
+  // Screen box of the circle plus its label (~36px above the top edge).
+  const x = (lng) => mapRect.left + ((lng - west) / (east - west)) * mapRect.width;
+  const y = (lat) => mapRect.top + ((north - lat) / (north - south)) * mapRect.height;
+  const box = { left: x(area.center.lng - rLng), right: x(area.center.lng + rLng), top: y(area.center.lat + rLat) - 36, bottom: y(area.center.lat - rLat) };
+  if (isPhone()) {
+    const roomTop = $("chips").getBoundingClientRect().bottom + 8;
+    const overlap = box.bottom - (pop.top - 12);
+    // Move the map up (content up = positive dy), but not so far that the label hides under the chips.
+    if (overlap > 0) moveMap(() => map.panBy(0, Math.min(overlap, Math.max(0, box.top - roomTop))));
+  } else {
+    const overlap = box.right - (pop.left - 16);
+    if (overlap > 0) moveMap(() => map.panBy(overlap, 0));
+  }
+}
+
+function closePopup() {
+  state.popupOpen = false;
+  $("area-popup").hidden = true;
+}
+
+
+/** Badge, title and distance summary for an area. */
+function areaHead(area, idx, route = areaRoute(area)) {
+  const units = unitsValue();
+  const first = state.groups[0][area.choice[0]];
+  const count = area.members.reduce((s, m) => s + m.length, 0);
+  const head = document.createElement("div");
+  head.className = "area-head";
+  head.innerHTML = `
+      <span class="area-badge">${idx + 1}</span>
+      <div class="grow">
+        <div class="area-title"></div>
+        <div class="area-sub"></div>
+      </div>`;
+  head.querySelector(".area-title").textContent = `方案 ${idx + 1}・${first.name} 一帶`;
+  const sub = head.querySelector(".area-sub");
+  const km = document.createElement("span");
+  km.className = "km";
+  km.textContent = `路程 ${formatKm(route.km, units)}`;
+  if (route.visit.length > 1 || state.start) sub.append(km, " · ");
+  sub.append(`半徑約 ${formatKm(area.radiusKm, units)} · ${count} 個地點`);
+  return head;
 }
 
 function areaCard(area, idx, selected) {
@@ -594,23 +727,7 @@ function areaCard(area, idx, selected) {
   const route = areaRoute(area);
   const card = document.createElement("article");
   card.className = "area-card" + (selected ? " selected" : "");
-  const first = state.groups[0][area.choice[0]];
-  const count = area.members.reduce((s, m) => s + m.length, 0);
-  card.innerHTML = `
-    <div class="area-head">
-      <span class="area-badge">${idx + 1}</span>
-      <div>
-        <div class="area-title"></div>
-        <div class="area-sub"></div>
-      </div>
-    </div>`;
-  card.querySelector(".area-title").textContent = `方案 ${idx + 1}・${first.name} 一帶`;
-  const sub = card.querySelector(".area-sub");
-  const km = document.createElement("span");
-  km.className = "km";
-  km.textContent = `路程 ${formatKm(route.km, units)}`;
-  if (route.visit.length > 1 || state.start) sub.append(km, " · ");
-  sub.append(`半徑約 ${formatKm(area.radiusKm, units)} · ${count} 個地點`);
+  card.append(areaHead(area, idx, route));
 
   if (!selected) {
     const summary = document.createElement("div");
@@ -624,16 +741,37 @@ function areaCard(area, idx, selected) {
       summary.append(chip);
     });
     card.append(summary);
-    card.onclick = () => {
-      state.areaSel = idx;
-      renderAreas();
-      card.scrollIntoView?.({ block: "nearest" });
-    };
+    card.onclick = () => selectArea(idx);
     return card;
   }
 
   // Selected: list every nearby place of each type; tap one to choose it for the route.
-  area.members.forEach((members, g) => {
+  card.append(...areaGroups(area, { details: true }));
+
+  // Visiting order of the chosen places.
+  const legs = document.createElement("div");
+  legs.className = "route-legs";
+  let prev = state.start;
+  legs.textContent = (state.start ? `起點 ${state.start.name} → ` : "") +
+    route.visit
+      .map((p, i) => {
+        const d = prev ? `（${formatKm(haversineKm(prev, p), units)}）` : "";
+        prev = p;
+        return `${i + 1}. ${p.name}${d}`;
+      })
+      .join(" → ");
+  card.append(legs, actionsRow(route.visit, area));
+  return card;
+}
+
+/**
+ * One section per searched type, listing the area's nearby places of that type.
+ * Tap a place to choose it for the route; pin / block buttons keep or exclude it.
+ * `details` adds the Google Maps details under each chosen place.
+ */
+function areaGroups(area, { details = false } = {}) {
+  const units = unitsValue();
+  return area.members.map((members, g) => {
     const s = state.searches[g];
     const sec = document.createElement("section");
     sec.className = "group";
@@ -663,7 +801,7 @@ function areaCard(area, idx, selected) {
       }
       meta.append(`距中心 ${formatKm(haversineKm(area.center, p), units)}`);
       li.append(filterButtons(p, s));
-      if (chosen) li.append(placeDetails(p.placeId));
+      if (chosen && details) li.append(placeDetails(p.placeId));
       const choose = () => {
         if (area.choice[g] === i) return;
         area.choice[g] = i;
@@ -680,26 +818,13 @@ function areaCard(area, idx, selected) {
       };
       ul.append(li);
     });
-    card.append(sec);
+    return sec;
   });
 
-  // Visiting order of the chosen places.
-  const legs = document.createElement("div");
-  legs.className = "route-legs";
-  let prev = state.start;
-  legs.textContent = (state.start ? `起點 ${state.start.name} → ` : "") +
-    route.visit
-      .map((p, i) => {
-        const d = prev ? `（${formatKm(haversineKm(prev, p), units)}）` : "";
-        prev = p;
-        return `${i + 1}. ${p.name}${d}`;
-      })
-      .join(" → ");
-  card.append(legs, actionsRow(route.visit));
-  return card;
 }
 
-function actionsRow(stops) {
+/** Directions link, plus a save / unsave button when `area` is a plan. */
+function actionsRow(stops, area = null) {
   const row = document.createElement("div");
   row.className = "area-actions";
   const go = document.createElement("a");
@@ -709,7 +834,146 @@ function actionsRow(stops) {
   go.rel = "noopener";
   go.innerHTML = `${ICONS.directions}<span>路線</span>`;
   row.append(go);
+  if (area) {
+    const saved = findSaved(area);
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn" + (saved ? " on" : "");
+    b.setAttribute("aria-pressed", String(Boolean(saved)));
+    b.innerHTML = `${saved ? ICONS.bookmarked : ICONS.bookmark}<span>${saved ? "已儲存" : "儲存"}</span>`;
+    b.title = saved ? "從「已儲存」移除" : "儲存這個方案，之後可在「已儲存」查看";
+    b.onclick = (e) => {
+      e.stopPropagation();
+      if (saved) {
+        writeSaved(loadSaved().filter((p) => p.id !== saved.id));
+        setStatus("已從「已儲存」移除這個方案。");
+      } else saveArea(area);
+      renderAreas({ fit: false });
+    };
+    row.append(b);
+  }
   return row;
+}
+
+// ---------- saved plans (localStorage) ----------
+const SAVED_STORAGE = "wsig.savedPlans";
+
+function loadSaved() {
+  try {
+    const list = JSON.parse(localStorage.getItem(SAVED_STORAGE) || "[]");
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSaved(list) {
+  try {
+    localStorage.setItem(SAVED_STORAGE, JSON.stringify(list));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Identifies a plan by the places chosen for it. */
+const areaKey = (area) => area.choice.map((i, g) => state.groups[g][i].placeId).join("|");
+const findSaved = (area) => loadSaved().find((p) => p.key === areaKey(area));
+
+function saveArea(area) {
+  const first = state.groups[0][area.choice[0]];
+  const plan = {
+    id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    key: areaKey(area),
+    savedAt: Date.now(),
+    title: `${first.name} 一帶`,
+    searches: state.searches.map((s) => ({ query: s.query, color: s.color })),
+    // The places listed for each type, and which one was chosen.
+    members: area.members.map((m, g) => m.map((i) => state.groups[g][i])),
+    choice: area.choice.map((i, g) => area.members[g].indexOf(i)),
+    center: area.center,
+    radiusKm: area.radiusKm,
+    start: state.start,
+    travelMode: segValue("travel-mode"),
+  };
+  if (writeSaved([plan, ...loadSaved()])) setStatus(`已儲存「${plan.title}」，可在「已儲存」分頁隨時查看。`);
+  else setStatus("無法儲存：這個瀏覽器不允許儲存資料（可能是私密瀏覽模式）。", true);
+}
+
+function renderSaved() {
+  const list = loadSaved();
+  $("saved-empty").hidden = list.length > 0;
+  $("saved-list").replaceChildren(
+    ...list.map((plan) => {
+      const card = document.createElement("article");
+      card.className = "area-card saved-card";
+      const head = document.createElement("div");
+      head.className = "area-head";
+      head.innerHTML = `<span class="area-badge">${ICONS.bookmarked}</span><div class="grow"><div class="area-title"></div><div class="area-sub"></div></div>`;
+      head.querySelector(".area-title").textContent = plan.title;
+      const when = new Date(plan.savedAt).toLocaleString("zh-TW", { dateStyle: "medium", timeStyle: "short" });
+      head.querySelector(".area-sub").textContent = `儲存於 ${when}` + (plan.start ? ` · 起點 ${plan.start.name}` : "");
+      const summary = document.createElement("div");
+      summary.className = "area-summary";
+      plan.searches.forEach((s, g) => {
+        const chip = document.createElement("span");
+        chip.className = "mini-chip";
+        chip.innerHTML = `<span class="dot"></span><span></span>`;
+        chip.querySelector(".dot").style.background = s.color;
+        chip.lastChild.textContent = `${s.query}：${plan.members[g][plan.choice[g]]?.name ?? ""}`;
+        summary.append(chip);
+      });
+      const actions = document.createElement("div");
+      actions.className = "area-actions";
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "btn filled";
+      open.textContent = "開啟";
+      open.onclick = (e) => {
+        e.stopPropagation();
+        openSaved(plan);
+      };
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn";
+      del.textContent = "刪除";
+      del.onclick = (e) => {
+        e.stopPropagation();
+        writeSaved(loadSaved().filter((p) => p.id !== plan.id));
+        renderSaved();
+        setStatus(`已刪除「${plan.title}」。`);
+      };
+      actions.append(open, del);
+      card.append(head, summary, actions);
+      card.onclick = () => openSaved(plan);
+      return card;
+    }),
+  );
+}
+
+/** Load a saved plan back into the 附近區域 tab, exactly as it was saved. */
+function openSaved(plan) {
+  if (!map) return;
+  state.searches = plan.searches.map((s, g) => ({ ...s, places: plan.members[g] }));
+  state.groups = plan.members;
+  state.start = plan.start || null;
+  state.excluded.clear();
+  state.pinned.clear();
+  renderFilters();
+  const members = plan.members.map((m) => m.map((_, i) => i));
+  const choice = plan.choice.map((c) => Math.max(0, c));
+  state.areas = [{ center: plan.center, radiusKm: plan.radiusKm, members, picks: choice.slice(), choice, order: [], km: 0 }];
+  state.areaSel = 0;
+  const mode = $("travel-mode");
+  if (plan.travelMode) {
+    mode.dataset.value = plan.travelMode;
+    mode.querySelectorAll("button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.value === plan.travelMode)));
+  }
+  renderChips();
+  selectTab("combo");
+  $("combo-intro").hidden = true;
+  renderAreas({ fit: "selected" });
+  setStatus(`已開啟儲存的方案「${plan.title}」。按「在此區域搜尋」可以重新搜尋這一帶。`);
 }
 
 // ---------- mode 2: plan my stops ----------
@@ -955,58 +1219,66 @@ async function renderDetails(box, place) {
 }
 
 // ---------- map drawing ----------
-function drawArea(area, { fit = true } = {}) {
+function drawAreas({ fit = "selected" } = {}) {
   clearMap();
-  // Other areas: faint outlines so the user can see where the alternatives are.
-  state.areas.forEach((a) => {
-    if (a === area) return;
-    state.overlays.push(
-      new lib.Circle({
-        map,
-        center: a.center,
-        radius: a.radiusKm * 1000,
-        strokeColor: cssVar("--text-2"),
-        strokeOpacity: 0.5,
-        strokeWeight: 1,
-        fillColor: cssVar("--text-2"),
-        fillOpacity: 0.06,
-        clickable: false,
-      }),
-    );
-  });
-  state.overlays.push(
-    new lib.Circle({
+  const sel = state.areas[state.areaSel];
+  const blue = cssVar("--blue");
+  // Every area's circle, with a numbered label on its top edge. Click either to open that plan.
+  state.areas.forEach((a, idx) => {
+    const selected = a === sel;
+    const circle = new lib.Circle({
       map,
-      center: area.center,
-      radius: area.radiusKm * 1000,
-      strokeColor: cssVar("--blue"),
-      strokeOpacity: 0.8,
-      strokeWeight: 2,
-      fillColor: cssVar("--blue"),
-      fillOpacity: 0.08,
-      clickable: false,
-    }),
-  );
-  // Every place in the area (small), then the chosen ones numbered in visiting order.
-  area.members.forEach((m, g) =>
+      center: a.center,
+      radius: a.radiusKm * 1000,
+      strokeColor: blue,
+      strokeOpacity: selected ? 0.9 : 0.6,
+      strokeWeight: selected ? 3 : 2,
+      fillColor: blue,
+      fillOpacity: selected ? 0.12 : 0.05,
+      clickable: true,
+      zIndex: selected ? 2 : 1,
+    });
+    circle.addListener("click", () => selectArea(idx, { popup: true, fit: false }));
+    state.overlays.push(circle);
+
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "area-pin" + (selected ? " selected" : "");
+    label.textContent = `方案 ${idx + 1}`;
+    label.setAttribute("aria-label", `開啟方案 ${idx + 1} 的篩選選項`);
+    label.addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectArea(idx, { popup: true, fit: false });
+    });
+    const top = { lat: a.center.lat + a.radiusKm / 111.32, lng: a.center.lng };
+    const marker = new lib.AdvancedMarkerElement({ map, position: top, content: label, gmpClickable: true, zIndex: selected ? 1000 : 900 });
+    state.markers.push(marker);
+  });
+
+  // The selected area's places (small), then the chosen ones numbered in visiting order.
+  sel.members.forEach((m, g) =>
     m.forEach((i) => {
-      if (area.choice[g] !== i) addMarker(state.groups[g][i], { color: state.searches[g].color, scale: 0.7, title: state.groups[g][i].name });
+      if (sel.choice[g] !== i) addMarker(state.groups[g][i], { color: state.searches[g].color, scale: 0.7, title: state.groups[g][i].name });
     }),
   );
-  const { visit } = areaRoute(area);
+  const { visit } = areaRoute(sel);
   const path = state.start ? [state.start, ...visit] : visit;
   if (state.start) addStartMarker();
   visit.forEach((s, i) => addMarker(s, { color: s.group.color, label: String(i + 1), title: s.name }));
   addLine(path);
-  if (fit) {
-    const r = area.radiusKm / 111; // degrees of latitude
-    const pts = [
-      { lat: area.center.lat + r, lng: area.center.lng },
-      { lat: area.center.lat - r, lng: area.center.lng },
-      ...path,
+
+  const edges = (a) => {
+    const r = a.radiusKm / 111.32; // degrees of latitude
+    const rl = r / Math.cos((a.center.lat * Math.PI) / 180);
+    return [
+      { lat: a.center.lat + r, lng: a.center.lng },
+      { lat: a.center.lat - r, lng: a.center.lng },
+      { lat: a.center.lat, lng: a.center.lng + rl },
+      { lat: a.center.lat, lng: a.center.lng - rl },
     ];
-    fitTo(pts);
-  }
+  };
+  if (fit === "all") fitTo([...state.areas.flatMap(edges), ...(state.start ? [state.start] : [])]);
+  else if (fit) fitTo([...edges(sel), ...path]);
 }
 
 function drawRoute(stops, { fit = true } = {}) {
@@ -1071,7 +1343,8 @@ function clearMap() {
 /** Map padding that keeps fitted points clear of the floating search bar, chips and results panel. */
 function mapPadding() {
   const app = $("app").getBoundingClientRect();
-  const top = $("chips").getBoundingClientRect().bottom - app.top + 16;
+  // Extra room above for the "方案 N" labels drawn on top of each area circle.
+  const top = $("chips").getBoundingClientRect().bottom - app.top + 44;
   if (isPhone()) {
     return { top, left: 32, right: 32, bottom: $("sheet").getBoundingClientRect().height + 24 };
   }
