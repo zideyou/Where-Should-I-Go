@@ -2,6 +2,10 @@ import { bestCombos, bestRoute, directionsUrl, formatKm, haversineKm } from "./g
 
 const KEY_STORAGE = "wsig.mapsApiKey";
 const GROUP_COLORS = ["#1a73e8", "#e8710a", "#188038", "#a142f4", "#d93025", "#12b5cb", "#f9ab00", "#e52592"];
+// Language/region for map labels, autocomplete and place results.
+// zh-TW = Traditional Chinese; TW biases results and formatting toward Taiwan.
+const MAPS_LANGUAGE = "zh-TW";
+const MAPS_REGION = "TW";
 const PLACE_FIELDS = ["id", "displayName", "formattedAddress", "location", "rating", "googleMapsURI"];
 const MAX_SEARCHES = 6;
 
@@ -51,7 +55,14 @@ function loadMapsScript(apiKey) {
     const s = document.createElement("script");
     s.src =
       "https://maps.googleapis.com/maps/api/js?" +
-      new URLSearchParams({ key: apiKey, v: "weekly", loading: "async", callback: "__wsigMapsReady" });
+      new URLSearchParams({
+        key: apiKey,
+        v: "weekly",
+        loading: "async",
+        language: MAPS_LANGUAGE,
+        region: MAPS_REGION,
+        callback: "__wsigMapsReady",
+      });
     s.async = true;
     s.onerror = () => reject(new Error("Could not load Google Maps."));
     document.head.append(s);
@@ -165,6 +176,8 @@ async function onAddSearch(e) {
     const { places } = await lib.Place.searchText({
       textQuery: query,
       fields: PLACE_FIELDS,
+      language: MAPS_LANGUAGE,
+      region: MAPS_REGION,
       locationBias: map.getBounds(),
       maxResultCount: 20,
     });
