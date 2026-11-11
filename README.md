@@ -4,16 +4,22 @@ A small web app that searches several places on Google Maps and finds the ones t
 
 ## Two ways to use it
 
-### 1. Find nearby combos
-Search for different kinds of places, such as `ramen`, `bookstore`, and `park`. Each search can return up to 20 results. The app checks the combinations and ranks the **5 tightest groups**, with one place from each search. For each group you get:
-- the visiting order and the distance of each leg
-- the total trip distance
-- an **Open in Google Maps** link with real turn-by-turn directions
+### 1. Nearby areas
+Type a kind of place into the search bar, or tap a category chip under it (`拉麵`, `咖啡廳`, `書店`…). Each search can return up to 20 results. The app splits the results into up to **5 different areas** of town. Each area plan:
+- is built around the tightest one-of-each group of places in that area
+- lists **several nearby places of each type** (up to 5) so you can pick the one you like; the route updates when you choose
+- shows the area on the map, with the other areas outlined faintly
+- has a **路線** button that opens real directions in Google Maps
+
+Areas never share places, so each plan really is a different neighbourhood. You can keep (📌) or exclude (🚫) a place, and "在此區域搜尋" re-runs the searches inside the visible map.
 
 ### 2. Plan my stops
 Add the exact places you already want to visit. The app works out the **visiting order with the least travel**. Up to 8 stops the order is guaranteed shortest. Above that it's a close estimate (nearest neighbour + 2-opt).
 
-Both modes accept an optional **starting point**, such as your hotel. If you set one, the trip begins there.
+Both modes accept an optional **starting point** (set in the ☰ menu, together with travel mode and units), such as your hotel. If you set one, the trip begins there.
+
+## Look and feel
+The interface follows the layout and visual style of the Google Maps app and website (it does not use Google's logo or trademarks): a floating rounded search bar at the top left, category chips below it, white Material-style cards, Roboto and blue `#1a73e8`. On desktop the results sit in a collapsible side panel; on phones they are in a bottom sheet you can drag between peek, half and full height.
 
 ## Setup
 

@@ -216,3 +216,55 @@ export function filterGroups(groups, { excluded = new Set(), pinned = new Set() 
     return pins.length ? pins : kept;
   });
 }
+
+/**
+ * Split the search results into distinct areas ("plans"). Each area is built
+ * around one of the tightest one-of-each combos, and lists every nearby place
+ * of each type so the user can choose among them. Areas don't share their core
+ * places and their centres are kept apart, so each plan is a different part of town.
+ *
+ * @param {Array<Array<{lat:number,lng:number}>>} groups  candidate places per search
+ * @param {{start?: object, limit?: number, perGroup?: number, minRadiusKm?: number}} opts
+ * @returns {Array<{center:{lat:number,lng:number}, radiusKm:number, picks:number[],
+ *   order:number[], km:number, members:number[][]}>}
+ *   picks[g] = closest pick per group (index into groups[g]); order/km = route through picks;
+ *   members[g] = indices of groups[g] in the area, nearest the centre first (picks[g] first).
+ */
+export function bestAreas(groups, { start = null, limit = 5, perGroup = 5, minRadiusKm = 0.4 } = {}) {
+  const combos = bestCombos(groups, { start, limit: Infinity });
+  if (groups.length === 1 && !start) {
+    // Every single place is a zero-length "trip", so start from the busiest spots instead.
+    const near = (p) => groups[0].filter((q) => haversineKm(p, q) <= minRadiusKm).length;
+    const density = groups[0].map(near);
+    combos.sort((a, b) => density[b.picks[0]] - density[a.picks[0]]);
+  }
+  const areas = [];
+  const used = groups.map(() => new Set()); // places already listed in an earlier area
+
+  for (const combo of combos) {
+    if (areas.length >= limit) break;
+    if (combo.picks.some((p, g) => used[g].has(p))) continue;
+    const pts = combo.picks.map((p, g) => groups[g][p]);
+    const center = {
+      lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length,
+      lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length,
+    };
+    const spread = Math.max(0, ...pts.map((p) => haversineKm(center, p)));
+    const radiusKm = Math.max(minRadiusKm, spread * 1.5);
+    // Keep each area's centre outside every earlier area.
+    if (areas.some((a) => haversineKm(a.center, center) < Math.max(a.radiusKm, radiusKm))) continue;
+
+    const members = groups.map((group, g) => {
+      const near = group
+        .map((p, i) => ({ i, d: haversineKm(center, p) }))
+        .filter(({ i, d }) => i !== combo.picks[g] && d <= radiusKm && !used[g].has(i))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, perGroup - 1)
+        .map(({ i }) => i);
+      return [combo.picks[g], ...near];
+    });
+    members.forEach((m, g) => m.forEach((i) => used[g].add(i)));
+    areas.push({ center, radiusKm, picks: combo.picks, order: combo.order, km: combo.km, members });
+  }
+  return areas;
+}
