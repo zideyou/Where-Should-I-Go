@@ -50,7 +50,7 @@ function loadMapsScript(apiKey) {
   return new Promise((resolve, reject) => {
     window.__wsigMapsReady = resolve;
     window.gm_authFailure = () => {
-      setStatus("Google rejected the API key. Check that it is valid and the APIs are enabled.", true);
+      setStatus("Google 拒絕了這組 API 金鑰。請確認金鑰正確，且已啟用所需的 API。", true);
     };
     const s = document.createElement("script");
     s.src =
@@ -64,7 +64,7 @@ function loadMapsScript(apiKey) {
         callback: "__wsigMapsReady",
       });
     s.async = true;
-    s.onerror = () => reject(new Error("Could not load Google Maps."));
+    s.onerror = () => reject(new Error("無法載入 Google 地圖。"));
     document.head.append(s);
   });
 }
@@ -88,7 +88,7 @@ async function boot(apiKey) {
     lib = { Polyline, Place, PlaceAutocompleteElement, AdvancedMarkerElement, PinElement, LatLngBounds };
 
     map = new Map($("map"), {
-      center: { lat: 40.758, lng: -73.9855 },
+      center: { lat: 25.0478, lng: 121.517 }, // 台北車站
       zoom: 13,
       mapId: "DEMO_MAP_ID",
       mapTypeControl: false,
@@ -142,7 +142,7 @@ function setupAutocomplete(slot, onPick) {
       await place.fetchFields({ fields: PLACE_FIELDS });
       onPick(toPlain(place));
     } catch (err) {
-      setStatus(`Could not load that place: ${err.message}`, true);
+      setStatus(`無法載入這個地點：${err.message}`, true);
     }
   };
   // Current event name, plus the older one for compatibility.
@@ -153,7 +153,7 @@ function setupAutocomplete(slot, onPick) {
 function toPlain(place) {
   return {
     placeId: place.id,
-    name: place.displayName || place.formattedAddress || "Unnamed place",
+    name: place.displayName || place.formattedAddress || "未命名地點",
     address: place.formattedAddress || "",
     lat: place.location.lat(),
     lng: place.location.lng(),
@@ -168,10 +168,10 @@ async function onAddSearch(e) {
   const query = $("search-input").value.trim();
   if (!query) return;
   if (state.searches.length >= MAX_SEARCHES) {
-    setStatus(`You can combine up to ${MAX_SEARCHES} searches.`, true);
+    setStatus(`最多只能組合 ${MAX_SEARCHES} 個搜尋。`, true);
     return;
   }
-  setStatus(`Searching for "${query}"…`);
+  setStatus(`正在搜尋「${query}」…`);
   try {
     const { places } = await lib.Place.searchText({
       textQuery: query,
@@ -182,17 +182,17 @@ async function onAddSearch(e) {
       maxResultCount: 20,
     });
     if (!places?.length) {
-      setStatus(`No results for "${query}" near here. Try moving the map or another search.`, true);
+      setStatus(`這附近找不到「${query}」。請試著移動地圖或換個關鍵字。`, true);
       return;
     }
     const color = GROUP_COLORS[state.searches.length % GROUP_COLORS.length];
     state.searches.push({ query, color, places: places.map(toPlain) });
     $("search-input").value = "";
-    setStatus(`Found ${places.length} places for "${query}".`);
+    setStatus(`找到 ${places.length} 個「${query}」。`);
     renderSearches();
     showSearchResults();
   } catch (err) {
-    setStatus(`Search failed: ${err.message}`, true);
+    setStatus(`搜尋失敗：${err.message}`, true);
   }
 }
 
@@ -201,10 +201,10 @@ function renderSearches() {
   list.replaceChildren(
     ...state.searches.map((s, i) => {
       const li = document.createElement("li");
-      li.innerHTML = `<span class="swatch"></span><span class="grow"></span><span class="muted"></span><button class="x" title="Remove">✕</button>`;
+      li.innerHTML = `<span class="swatch"></span><span class="grow"></span><span class="muted"></span><button class="x" title="移除">✕</button>`;
       li.querySelector(".swatch").style.background = s.color;
       li.querySelector(".grow").textContent = s.query;
-      li.querySelector(".muted").textContent = `${s.places.length} found`;
+      li.querySelector(".muted").textContent = `${s.places.length} 個結果`;
       li.querySelector(".x").onclick = () => {
         state.searches.splice(i, 1);
         state.searches.forEach((g, j) => (g.color = GROUP_COLORS[j % GROUP_COLORS.length]));
@@ -235,12 +235,12 @@ function onFindCombos() {
   const groups = state.searches.map((s) => s.places);
   const combos = bestCombos(groups, { start: state.start, limit: 5 });
   if (!combos.length) {
-    setStatus("No combinations found.", true);
+    setStatus("找不到任何組合。", true);
     return;
   }
   state.lastCombos = combos;
   renderCombos(0);
-  setStatus(`Showing the ${combos.length} tightest combinations.`);
+  setStatus(`顯示距離最近的 ${combos.length} 個組合。`);
 }
 
 function renderCombos(selected) {
@@ -249,7 +249,7 @@ function renderCombos(selected) {
   box.replaceChildren(
     ...combos.map((c, idx) => {
       const stops = c.order.map((g) => ({ ...state.searches[g].places[c.picks[g]], group: state.searches[g] }));
-      const card = resultCard(`Option ${idx + 1}`, c.km, stops, idx === selected);
+      const card = resultCard(`方案 ${idx + 1}`, c.km, stops, idx === selected);
       card.onclick = (e) => {
         if (e.target.tagName !== "A") renderCombos(idx);
       };
@@ -267,7 +267,7 @@ function renderStops() {
   list.replaceChildren(
     ...state.stops.map((s, i) => {
       const li = document.createElement("li");
-      li.innerHTML = `<span class="grow"></span><button class="x" title="Remove">✕</button>`;
+      li.innerHTML = `<span class="grow"></span><button class="x" title="移除">✕</button>`;
       li.querySelector(".grow").textContent = s.name;
       li.querySelector(".grow").title = s.address;
       li.querySelector(".x").onclick = () => {
@@ -291,12 +291,12 @@ function onPlanRoute() {
   const visit = (state.start ? order.slice(1) : order).map((i) => pts[i]);
   state.lastRoute = { visit, km };
   renderRoute();
-  setStatus(state.stops.length > 8 ? "Large list: route is a close-to-optimal estimate." : "This is the shortest order.");
+  setStatus(state.stops.length > 8 ? "地點較多：此路線為接近最佳的估算。" : "這是最短的順序。");
 }
 
 function renderRoute() {
   const { visit, km } = state.lastRoute;
-  $("route-results").replaceChildren(resultCard("Best order", km, visit, true));
+  $("route-results").replaceChildren(resultCard("最佳順序", km, visit, true));
   drawRoute(visit);
 }
 
@@ -309,7 +309,7 @@ function resultCard(title, km, stops, selected) {
   head.className = "result-head";
   head.innerHTML = `<span></span><span class="km"></span>`;
   head.children[0].textContent = title;
-  head.children[1].textContent = `${formatKm(km, units)} total`;
+  head.children[1].textContent = `總計 ${formatKm(km, units)}`;
   card.append(head);
 
   const ol = document.createElement("ol");
@@ -327,7 +327,7 @@ function resultCard(title, km, stops, selected) {
     if (prev) {
       const leg = document.createElement("span");
       leg.className = "leg";
-      leg.textContent = `↳ ${formatKm(haversineKm(prev, s), units)} from previous`;
+      leg.textContent = `↳ 距上一站 ${formatKm(haversineKm(prev, s), units)}`;
       li.append(leg);
     }
     prev = s;
@@ -339,7 +339,7 @@ function resultCard(title, km, stops, selected) {
   link.href = directionsUrl(state.start ? [state.start, ...stops] : stops, $("travel-mode").value);
   link.target = "_blank";
   link.rel = "noopener";
-  link.textContent = "Open in Google Maps →";
+  link.textContent = "在 Google 地圖中開啟 →";
   card.append(link);
   return card;
 }
@@ -373,7 +373,7 @@ function rerender() {
 function renderStart() {
   const chip = $("start-chip");
   chip.hidden = false;
-  chip.innerHTML = `<span class="swatch" style="background:#202124"></span><span class="grow"></span><button class="x" title="Remove">✕</button>`;
+  chip.innerHTML = `<span class="swatch" style="background:#202124"></span><span class="grow"></span><button class="x" title="移除">✕</button>`;
   chip.querySelector(".grow").textContent = state.start.name;
   chip.querySelector(".x").onclick = () => {
     state.start = null;
@@ -407,7 +407,7 @@ function addMarker(p, { color, label, title, scale = 1 }) {
 }
 
 function addStartMarker() {
-  addMarker(state.start, { color: "#202124", label: "S", title: `Start: ${state.start.name}` });
+  addMarker(state.start, { color: "#202124", label: "S", title: `起點：${state.start.name}` });
 }
 
 function clearMap() {
