@@ -173,7 +173,9 @@ async function onAddSearch(e) {
   }
   setStatus(`正在搜尋「${query}」…`);
   try {
-    const { places } = await lib.Place.searchText({
+    // Newer Maps JS versions renamed Place.searchText to Place.searchByText.
+    const search = lib.Place.searchByText ?? lib.Place.searchText;
+    const { places } = await search.call(lib.Place, {
       textQuery: query,
       fields: PLACE_FIELDS,
       language: MAPS_LANGUAGE,
