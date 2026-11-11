@@ -50,49 +50,50 @@ a { color: var(--accent); }
 .key-setup { max-width: 460px; margin: 10vh auto; padding: 0 16px; }
 .key-setup form { display: grid; gap: 8px; margin: 16px 0; }
 
-/* Layout: the map fills the page; the panel sits below it and can collapse. */
-.app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
-.map-wrap { position: relative; flex: 1; min-height: 0; }
+/* Layout: the map fills the page; the controls float over it in a card
+   that collapses to a single floating button. */
+.app { position: relative; height: 100vh; height: 100dvh; overflow: hidden; }
+.map-wrap { position: absolute; inset: 0; }
 .map { position: absolute; inset: 0; }
 .panel {
-  flex: none;
-  background: var(--panel);
-  border-top: 1px solid var(--border);
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.12);
+  position: absolute;
+  left: 16px;
+  bottom: 40px;
+  z-index: 2;
+  width: min(420px, calc(100% - 32px));
+  max-height: calc(100% - 96px);
   display: flex;
   flex-direction: column;
-  max-height: 55vh;
-  max-height: 55dvh;
-  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
 }
-.panel-head { padding: 0 16px 8px; }
-.panel-head > * { max-width: 720px; margin-left: auto; margin-right: auto; }
+.panel-head { padding: 4px 16px 10px; border-bottom: 1px solid var(--border); }
 .panel-toggle {
-  display: grid;
-  grid-template-columns: 1fr auto;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   width: 100%;
   border: none;
   background: none;
-  padding: 14px 0 4px;
-  position: relative;
+  padding: 8px 0 2px;
   text-align: left;
 }
-.panel-toggle .handle {
-  position: absolute;
-  top: 5px;
-  left: 50%;
-  width: 40px;
-  height: 4px;
-  margin-left: -20px;
-  border-radius: 2px;
-  background: var(--border);
-}
-.toggle-label { color: var(--accent); font-size: 0.875rem; }
-.panel-body { overflow-y: auto; overflow-x: hidden; padding: 0 16px 16px; }
-.panel-inner { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.panel-toggle .handle { display: none; }
+.toggle-label { color: var(--accent); font-size: 0.875rem; white-space: nowrap; }
+.panel-body { overflow-y: auto; overflow-x: hidden; padding: 12px 16px 16px; }
+.panel-inner { display: flex; flex-direction: column; gap: 12px; }
 .panel-tools { display: flex; justify-content: flex-end; }
+
+/* Collapsed: just a floating pill button. */
+.panel.collapsed { width: auto; max-width: calc(100% - 32px); border-radius: 999px; }
 .panel.collapsed .panel-body { display: none; }
+.panel.collapsed .panel-head { padding: 4px 20px 6px; border-bottom: none; }
+.panel.collapsed h1 { font-size: 1rem; }
+.panel.collapsed .status { display: none; }
 .search-here {
   position: absolute;
   top: 12px;
@@ -171,10 +172,11 @@ a { color: var(--accent); }
 .details .links { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .details a { overflow-wrap: anywhere; }
 
-.status { font-size: 0.875rem; color: var(--muted); margin: 0 auto; }
+.status { font-size: 0.875rem; color: var(--muted); margin: 0; }
 .status:empty { display: none; }
 .status.error { color: var(--danger); }
 
 @media (max-width: 760px) {
-  .panel { max-height: 65vh; max-height: 65dvh; }
+  .panel { left: 12px; bottom: 36px; width: calc(100% - 24px); max-height: 70%; }
+  .panel.collapsed { left: 50%; transform: translateX(-50%); }
 }
