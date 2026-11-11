@@ -9,6 +9,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" />
     <link rel="stylesheet" href="src/styles.css" />
+    <script>
+      // Apply a saved light/dark choice before the page paints.
+      try {
+        const t = localStorage.getItem("wsig.theme");
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
   </head>
   <body>
     <!-- Shown until a Google Maps API key is saved -->
@@ -126,6 +133,14 @@
               <div id="units" class="segmented" role="radiogroup" data-value="km">
                 <button type="button" role="radio" data-value="km">公里</button>
                 <button type="button" role="radio" data-value="mi">英里</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="field-label">外觀</span>
+              <div id="theme" class="segmented" role="radiogroup" data-value="auto">
+                <button type="button" role="radio" data-value="auto">自動</button>
+                <button type="button" role="radio" data-value="light">淺色</button>
+                <button type="button" role="radio" data-value="dark">深色</button>
               </div>
             </div>
             <hr />

@@ -108,30 +108,15 @@ async function boot(apiKey) {
 
   try {
     await loadMapsScript(apiKey);
-    const [{ Map, Polyline, Circle }, { Place, PlaceAutocompleteElement }, { AdvancedMarkerElement, PinElement }, { LatLngBounds }] =
+    const [{ Map, Polyline, Circle }, { Place, PlaceAutocompleteElement }, { AdvancedMarkerElement, PinElement }, { LatLngBounds, ColorScheme }] =
       await Promise.all([
         google.maps.importLibrary("maps"),
         google.maps.importLibrary("places"),
         google.maps.importLibrary("marker"),
         google.maps.importLibrary("core"),
       ]);
-    lib = { Polyline, Circle, Place, PlaceAutocompleteElement, AdvancedMarkerElement, PinElement, LatLngBounds };
-
-    map = new Map($("map"), {
-      center: { lat: 25.0478, lng: 121.517 }, // 台北車站
-      zoom: 14,
-      mapId: "DEMO_MAP_ID",
-      disableDefaultUI: true,
-      zoomControl: !isPhone(),
-      zoomControlOptions: { position: google.maps.ControlPosition?.RIGHT_BOTTOM },
-      gestureHandling: "greedy",
-    });
-    // Offer "search this area" when the user (not the app) moves the map.
-    map.addListener("dragend", onUserMovedMap);
-    map.addListener("zoom_changed", () => {
-      if (!programmaticMove) onUserMovedMap();
-    });
-    map.addListener("idle", () => (programmaticMove = false));
+    lib = { Map, Polyline, Circle, Place, PlaceAutocompleteElement, AdvancedMarkerElement, PinElement, LatLngBounds, ColorScheme };
+    createMap({ lat: 25.0478, lng: 121.517 }, 14); // 台北車站
     navigator.geolocation?.getCurrentPosition(
       (pos) => moveMap(() => map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude })),
       () => {},
@@ -176,15 +161,19 @@ function setupChrome() {
     tab.onclick = () => selectTab(tab.dataset.tab);
   });
 
-  // Segmented controls in the menu drawer (travel mode, units).
-  for (const id of ["travel-mode", "units"]) {
+  // Segmented controls in the menu drawer (travel mode, units, theme).
+  $("theme").dataset.value = themeSetting();
+  darkQuery.addEventListener?.("change", () => themeSetting() === "auto" && applyTheme());
+  applyTheme();
+  for (const id of ["travel-mode", "units", "theme"]) {
     const seg = $(id);
     const sync = () => seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.value === seg.dataset.value)));
     seg.querySelectorAll("button").forEach((b) => {
       b.onclick = () => {
         seg.dataset.value = b.dataset.value;
         sync();
-        rerender();
+        if (id === "theme") setTheme(b.dataset.value);
+        else rerender();
       };
     });
     sync();
@@ -223,6 +212,71 @@ function selectTab(name) {
   setStatus("");
   if (name === "combo") showAreasOrSearches();
   else renderStops();
+}
+
+// ---------- map + theme ----------
+const THEME_STORAGE = "wsig.theme";
+const darkQuery = matchMedia("(prefers-color-scheme: dark)");
+/** "auto" (follow the system), "light" or "dark". */
+const themeSetting = () => document.documentElement.dataset.theme || "auto";
+const isDark = () => (themeSetting() === "auto" ? darkQuery.matches : themeSetting() === "dark");
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+/**
+ * Create (or re-create) the map. The map's colour scheme can only be set when it is
+ * created, so switching between light and dark builds a new map in the same place.
+ */
+function createMap(center, zoom) {
+  const scheme = isDark() ? "DARK" : "LIGHT";
+  if (map && map.__scheme === scheme) return;
+  $("map").replaceChildren();
+  map = new lib.Map($("map"), {
+    center,
+    zoom,
+    mapId: "DEMO_MAP_ID",
+    colorScheme: lib.ColorScheme?.[scheme] ?? scheme,
+    disableDefaultUI: true,
+    zoomControl: !isPhone(),
+    zoomControlOptions: { position: google.maps.ControlPosition?.RIGHT_BOTTOM },
+    gestureHandling: "greedy",
+  });
+  map.__scheme = scheme;
+  // Offer "search this area" when the user (not the app) moves the map.
+  map.addListener("dragend", onUserMovedMap);
+  map.addListener("zoom_changed", () => {
+    if (!programmaticMove) onUserMovedMap();
+  });
+  map.addListener("idle", () => (programmaticMove = false));
+}
+
+/** Apply a theme change to the page and, if needed, rebuild the map and redraw it. */
+function applyTheme() {
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", isDark() ? "#202124" : "#ffffff");
+  if (!map) return;
+  const before = map.__scheme;
+  const c = map.getCenter();
+  createMap({ lat: c.lat(), lng: c.lng() }, map.getZoom());
+  if (map.__scheme === before) return;
+  // Markers and shapes belong to the old map: draw them again on the new one.
+  state.markers = [];
+  state.overlays = [];
+  if (!$("tab-combo").hidden) {
+    if (state.areas?.length) drawArea(state.areas[state.areaSel], { fit: false });
+    else if (state.searches.length) showSearchResults({ fit: false });
+    else if (state.start) addStartMarker();
+  } else if (state.lastRoute && $("route-results").childElementCount) {
+    drawRoute(state.lastRoute.visit, { fit: false });
+  } else {
+    renderStops({ fit: false });
+  }
+}
+
+function setTheme(value) {
+  if (value === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = value;
+  if (value === "auto") store.del(THEME_STORAGE);
+  else store.set(THEME_STORAGE, value);
+  applyTheme();
 }
 
 // ---------- bottom sheet (phones) ----------
@@ -334,7 +388,6 @@ function renderChips() {
     const c = document.createElement("span");
     c.className = "chip start";
     c.innerHTML = `${ICONS.home}<span class="label"></span><button class="x" type="button" aria-label="移除起點">${ICONS.close}</button>`;
-    c.querySelector("svg").style.color = "#fff";
     c.querySelector(".label").textContent = state.start.name;
     c.querySelector(".x").onclick = () => {
       state.start = null;
@@ -660,7 +713,7 @@ function actionsRow(stops) {
 }
 
 // ---------- mode 2: plan my stops ----------
-function renderStops() {
+function renderStops({ fit = true } = {}) {
   const list = $("stop-list");
   list.replaceChildren(
     ...state.stops.map((s, i) => {
@@ -684,7 +737,7 @@ function renderStops() {
   clearMap();
   state.stops.forEach((s) => addMarker(s, { color: GROUP_COLORS[0], title: s.name }));
   if (state.start) addStartMarker();
-  fitTo(state.start ? [state.start, ...state.stops] : state.stops);
+  if (fit) fitTo(state.start ? [state.start, ...state.stops] : state.stops);
 }
 
 function onPlanRoute() {
@@ -912,10 +965,10 @@ function drawArea(area, { fit = true } = {}) {
         map,
         center: a.center,
         radius: a.radiusKm * 1000,
-        strokeColor: "#5f6368",
+        strokeColor: cssVar("--text-2"),
         strokeOpacity: 0.5,
         strokeWeight: 1,
-        fillColor: "#5f6368",
+        fillColor: cssVar("--text-2"),
         fillOpacity: 0.06,
         clickable: false,
       }),
@@ -926,10 +979,10 @@ function drawArea(area, { fit = true } = {}) {
       map,
       center: area.center,
       radius: area.radiusKm * 1000,
-      strokeColor: "#1a73e8",
+      strokeColor: cssVar("--blue"),
       strokeOpacity: 0.8,
       strokeWeight: 2,
-      fillColor: "#1a73e8",
+      fillColor: cssVar("--blue"),
       fillOpacity: 0.08,
       clickable: false,
     }),
@@ -956,13 +1009,13 @@ function drawArea(area, { fit = true } = {}) {
   }
 }
 
-function drawRoute(stops) {
+function drawRoute(stops, { fit = true } = {}) {
   clearMap();
   const path = state.start ? [state.start, ...stops] : stops;
   if (state.start) addStartMarker();
   stops.forEach((s, i) => addMarker(s, { color: GROUP_COLORS[0], label: String(i + 1), title: s.name }));
   addLine(path);
-  fitTo(path);
+  if (fit) fitTo(path);
 }
 
 function addLine(path) {
@@ -970,7 +1023,7 @@ function addLine(path) {
     new lib.Polyline({
       map,
       path: path.map(({ lat, lng }) => ({ lat, lng })),
-      strokeColor: "#1a73e8",
+      strokeColor: cssVar("--blue"),
       strokeOpacity: 0.9,
       strokeWeight: 5,
     }),
