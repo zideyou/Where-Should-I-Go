@@ -268,3 +268,36 @@ export function bestAreas(groups, { start = null, limit = 5, perGroup = 5, minRa
   }
   return areas;
 }
+
+/**
+ * A short area name from Taiwanese street addresses, e.g.
+ * "100台灣台北市中正區忠孝西路一段49號" → road "忠孝西路一段", district "中正區".
+ * Returns the road most addresses share, else the most common district, else null.
+ */
+export function areaNameFromAddresses(addresses) {
+  const count = (items) => {
+    const tally = new Map();
+    items.filter(Boolean).forEach((x) => tally.set(x, (tally.get(x) || 0) + 1));
+    return [...tally].sort((a, b) => b[1] - a[1])[0];
+  };
+  const parts = addresses.map((a) => {
+    const rest = String(a || "").replace(/^\d{3,6}/, "").replace(/^(台灣|臺灣)/, "");
+    const district = rest.match(/^[^市縣]{1,3}[市縣]([^區鄉鎮市]{1,3}[區鄉鎮市])/)?.[1] || null;
+    const afterDistrict = district ? rest.slice(rest.indexOf(district) + district.length) : rest;
+    const road = afterDistrict.match(/^(?:[^\d路街道巷]{0,4}里)?(?:\d+鄰)?([^\d巷弄號]{1,8}?(?:路|街|大道)(?:[一二三四五六七八九十]+段)?)/)?.[1] || null;
+    return { road, district };
+  });
+  const road = count(parts.map((p) => p.road));
+  if (road && road[1] >= Math.max(2, Math.ceil(addresses.length / 2))) return `${road[0]}一帶`;
+  const district = count(parts.map((p) => p.district));
+  return district ? district[0] : road ? `${road[0]}一帶` : null;
+}
+
+/** "西門" / "捷運西門站" / "Ximen Station" → "捷運西門站" style label. */
+export function stationLabel(name) {
+  let n = String(name || "").trim().replace(/[(（].*?[)）]/g, "").trim();
+  if (!n) return null;
+  if (/車站$/.test(n)) return n;
+  if (!/站$/.test(n)) n += "站";
+  return /^捷運/.test(n) ? n : `捷運${n}`;
+}

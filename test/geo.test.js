@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bestAreas, bestCombos, bestRoute, directionsUrl, filterGroups, formatKm, haversineKm } from "../src/geo.js";
+import { areaNameFromAddresses, bestAreas, stationLabel, bestCombos, bestRoute, directionsUrl, filterGroups, formatKm, haversineKm } from "../src/geo.js";
 
 test("haversine: known distance (Times Square -> Central Park south ~1.3 km)", () => {
   const km = haversineKm({ lat: 40.758, lng: -73.9855 }, { lat: 40.7681, lng: -73.9819 });
@@ -127,4 +127,19 @@ test("bestAreas: limits places per type and never repeats a place across plans",
       seen.add(i);
     });
   }
+});
+
+test("areaNameFromAddresses: shared road wins, else district", () => {
+  const road = ["100台灣台北市中正區忠孝西路一段49號", "100台灣台北市中正區忠孝西路一段66號", "100台灣台北市中正區館前路2號"];
+  assert.equal(areaNameFromAddresses(road), "忠孝西路一段一帶");
+  const mixed = ["106台灣台北市大安區復興南路一段1號", "106台灣台北市大安區敦化南路二段5號", "100台灣台北市中正區館前路2號"];
+  assert.equal(areaNameFromAddresses(mixed), "大安區");
+  assert.equal(areaNameFromAddresses([""]), null);
+});
+
+test("stationLabel normalises MRT station names", () => {
+  assert.equal(stationLabel("西門"), "捷運西門站");
+  assert.equal(stationLabel("捷運西門站"), "捷運西門站");
+  assert.equal(stationLabel("台北車站"), "台北車站");
+  assert.equal(stationLabel("善導寺站 (BL)"), "捷運善導寺站");
 });
