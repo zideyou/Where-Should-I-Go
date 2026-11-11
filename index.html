@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Where Should I Go</title>
+    <link rel="stylesheet" href="src/styles.css" />
+  </head>
+  <body>
+    <!-- Shown until a Google Maps API key is saved -->
+    <section id="key-setup" class="key-setup" hidden>
+      <h1>Where Should I Go</h1>
+      <p>Find places that are close to each other, so you never have to go far to the next one.</p>
+      <form id="key-form">
+        <label for="key-input">Google Maps API key</label>
+        <input id="key-input" type="password" placeholder="AIza..." required autocomplete="off" />
+        <button type="submit">Save &amp; start</button>
+      </form>
+      <p class="hint">
+        The key stays in this browser only (localStorage). It needs the <b>Maps JavaScript API</b> and
+        <b>Places API (New)</b> enabled. See the README for setup steps.
+      </p>
+    </section>
+
+    <main id="app" class="app" hidden>
+      <aside class="panel">
+        <header class="panel-head">
+          <h1>Where Should I Go</h1>
+          <button id="change-key" class="link" type="button">Change API key</button>
+        </header>
+
+        <div class="settings">
+          <label>
+            Travel by
+            <select id="travel-mode">
+              <option value="walking">Walking</option>
+              <option value="driving">Driving</option>
+              <option value="transit">Transit</option>
+              <option value="bicycling">Cycling</option>
+            </select>
+          </label>
+          <label>
+            Units
+            <select id="units">
+              <option value="km">km</option>
+              <option value="mi">miles</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="field">
+          <label>Starting point <span class="muted">(optional, e.g. your hotel)</span></label>
+          <div id="start-slot" class="ac-slot"></div>
+          <div id="start-chip" class="chip" hidden></div>
+        </div>
+
+        <nav class="tabs" role="tablist">
+          <button class="tab active" data-tab="combo" role="tab">Find nearby combos</button>
+          <button class="tab" data-tab="stops" role="tab">Plan my stops</button>
+        </nav>
+
+        <!-- Mode 1: search several things, pick one of each that are close together -->
+        <section id="tab-combo" class="tab-body">
+          <p class="muted">
+            Search for several kinds of places. We'll pick one of each that are closest together.
+            Results are focused on the area visible on the map.
+          </p>
+          <form id="search-form" class="row">
+            <input id="search-input" placeholder='e.g. "ramen", "bookstore", "Target"' autocomplete="off" />
+            <button type="submit">Add</button>
+          </form>
+          <ul id="search-list" class="list"></ul>
+          <button id="find-combos" class="primary" type="button" disabled>Find closest combination</button>
+          <div id="combo-results"></div>
+        </section>
+
+        <!-- Mode 2: places already chosen, find the shortest order -->
+        <section id="tab-stops" class="tab-body" hidden>
+          <p class="muted">Add the specific places you want to visit. We'll find the order with the least travel.</p>
+          <div id="stop-slot" class="ac-slot"></div>
+          <ul id="stop-list" class="list"></ul>
+          <button id="plan-route" class="primary" type="button" disabled>Plan shortest route</button>
+          <div id="route-results"></div>
+        </section>
+
+        <p id="status" class="status" role="status"></p>
+        <p class="footnote">
+          Distances are straight-line estimates used for ranking. "Open in Google Maps" gives real directions.
+        </p>
+      </aside>
+
+      <div id="map" class="map"></div>
+    </main>
+
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>

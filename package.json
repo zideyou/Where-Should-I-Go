@@ -1,0 +1,11 @@
+{
+  "name": "where-should-i-go",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Search multiple places on Google Maps and find the ones closest to each other.",
+  "type": "module",
+  "scripts": {
+    "start": "npx --yes serve -l 8080 .",
+    "test": "node --test test/*.test.js"
+  }
+}
