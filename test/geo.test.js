@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bestCombos, bestRoute, directionsUrl, filterGroups, formatKm, haversineKm } from "../src/geo.js";
+import { bestAreas, bestCombos, bestRoute, directionsUrl, filterGroups, formatKm, haversineKm } from "../src/geo.js";
 
 test("haversine: known distance (Times Square -> Central Park south ~1.3 km)", () => {
   const km = haversineKm({ lat: 40.758, lng: -73.9855 }, { lat: 40.7681, lng: -73.9819 });
@@ -98,4 +98,33 @@ test("filterGroups: a group can become empty, and no filters keeps everything", 
   const a = [{ placeId: "a1" }];
   assert.deepEqual(filterGroups([a], { excluded: new Set(["a1"]) }), [[]]);
   assert.deepEqual(filterGroups([a]), [a]);
+});
+
+test("bestAreas: one plan per neighbourhood, each listing nearby places of every type", () => {
+  const at = (lat, lng) => ({ lat, lng });
+  // Two neighbourhoods ~5 km apart, each with two ramen shops and two cafes.
+  const ramen = [at(0, 0), at(0, 0.002), at(0.045, 0), at(0.045, 0.002)];
+  const cafes = [at(0.001, 0.001), at(0.0005, -0.002), at(0.046, 0.001), at(0.0455, -0.002)];
+  const areas = bestAreas([ramen, cafes], { limit: 5 });
+  assert.equal(areas.length, 2);
+  const lists = areas.map((a) => a.members.map((m) => [...m].sort()));
+  assert.deepEqual(lists.map((l) => JSON.stringify(l)).sort(), [
+    JSON.stringify([[0, 1], [0, 1]]),
+    JSON.stringify([[2, 3], [2, 3]]),
+  ]);
+  for (const a of areas) a.picks.forEach((p, g) => assert.equal(a.members[g][0], p));
+  assert.ok(areas[0].km <= areas[1].km);
+});
+
+test("bestAreas: limits places per type and never repeats a place across plans", () => {
+  const many = Array.from({ length: 12 }, (_, i) => ({ lat: 0, lng: i * 0.0002 }));
+  const areas = bestAreas([many, many], { perGroup: 3 });
+  const seen = new Set();
+  for (const a of areas) {
+    a.members.forEach((m) => assert.ok(m.length <= 3));
+    a.members[0].forEach((i) => {
+      assert.ok(!seen.has(i));
+      seen.add(i);
+    });
+  }
 });

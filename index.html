@@ -2,116 +2,152 @@
 <html lang="zh-Hant-TW">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" />
     <title>我該去哪裡</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" />
     <link rel="stylesheet" href="src/styles.css" />
+    <script>
+      // Apply a saved light/dark choice before the page paints.
+      try {
+        const t = localStorage.getItem("wsig.theme");
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
   </head>
   <body>
     <!-- Shown until a Google Maps API key is saved -->
     <section id="key-setup" class="key-setup" hidden>
-      <h1>我該去哪裡</h1>
-      <p>找出彼此距離相近的地點，讓你不必跑太遠就能到下一站。</p>
-      <form id="key-form">
-        <label for="key-input">Google Maps API 金鑰</label>
-        <input id="key-input" type="password" placeholder="AIza..." required autocomplete="off" />
-        <button type="submit">儲存並開始</button>
-      </form>
-      <p class="hint">
-        金鑰只會儲存在這個瀏覽器（localStorage）。需要啟用 <b>Maps JavaScript API</b> 和
-        <b>Places API (New)</b>，設定步驟請見 README。
-      </p>
+      <div class="card">
+        <h1>我該去哪裡</h1>
+        <p>找出彼此距離相近的地點，讓你不必跑太遠就能到下一站。</p>
+        <form id="key-form">
+          <label for="key-input">Google Maps API 金鑰</label>
+          <input id="key-input" type="password" placeholder="AIza..." required autocomplete="off" />
+          <button type="submit" class="btn filled">儲存並開始</button>
+        </form>
+        <p class="hint">
+          金鑰只會儲存在這個瀏覽器（localStorage）。需要啟用 <b>Maps JavaScript API</b> 和
+          <b>Places API (New)</b>，設定步驟請見 README。
+        </p>
+      </div>
     </section>
 
     <main id="app" class="app" hidden>
-      <div class="map-wrap">
-        <div id="map" class="map"></div>
-        <button id="search-here" class="search-here" type="button" hidden>在此區域搜尋</button>
+      <div id="map" class="map"></div>
+
+      <!-- Floating search bar + category chips (top left) -->
+      <div class="topbar">
+        <form id="search-form" class="searchbox" role="search">
+          <button id="menu-btn" class="icon-btn" type="button" aria-label="選單與設定" aria-controls="drawer" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z" /></svg>
+          </button>
+          <input id="search-input" type="search" placeholder="搜尋地點類型，例如：拉麵" autocomplete="off" enterkeyhint="search" aria-label="搜尋地點類型" />
+          <button class="icon-btn accent" type="submit" aria-label="搜尋">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16a6.47 6.47 0 0 0 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14" /></svg>
+          </button>
+        </form>
+        <div id="chips" class="chips" aria-label="地點分類"></div>
       </div>
 
-      <aside id="panel" class="panel">
-        <header class="panel-head">
-          <button id="panel-toggle" class="panel-toggle" type="button" aria-expanded="true" aria-controls="panel-body">
-            <span class="handle" aria-hidden="true"></span>
-            <h1>我該去哪裡</h1>
-            <span id="panel-toggle-label" class="toggle-label">收起 ▾</span>
-          </button>
+      <button id="search-here" class="search-here" type="button" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z" /></svg>
+        在此區域搜尋
+      </button>
+
+      <!-- Results: side panel on desktop, draggable bottom sheet on phones -->
+      <aside id="sheet" class="sheet" data-state="half" aria-label="搜尋結果">
+        <div id="sheet-handle" class="sheet-handle" role="button" tabindex="0" aria-label="拖曳以調整面板高度">
+          <span class="grabber"></span>
+        </div>
+        <button id="panel-toggle" class="panel-toggle" type="button" aria-label="收合側邊面板" aria-expanded="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg>
+        </button>
+
+        <div id="sheet-scroll" class="sheet-scroll">
+          <nav class="tabs" role="tablist">
+            <button class="tab active" data-tab="combo" role="tab" type="button">附近區域</button>
+            <button class="tab" data-tab="stops" role="tab" type="button">規劃行程</button>
+          </nav>
           <p id="status" class="status" role="status"></p>
-        </header>
 
-        <div id="panel-body" class="panel-body">
-          <div class="panel-inner">
-            <div class="panel-tools">
-              <button id="change-key" class="link" type="button">更換 API 金鑰</button>
-            </div>
-
-            <div class="settings">
-              <label>
-                交通方式
-                <select id="travel-mode">
-                  <option value="walking">步行</option>
-                  <option value="driving">開車</option>
-                  <option value="transit">大眾運輸</option>
-                  <option value="bicycling">騎自行車</option>
-                </select>
-              </label>
-              <label>
-                單位
-                <select id="units">
-                  <option value="km">公里</option>
-                  <option value="mi">英里</option>
-                </select>
-              </label>
-            </div>
-
-            <div class="field">
-              <label>起點 <span class="muted">（選填，例如你的飯店）</span></label>
-              <div id="start-slot" class="ac-slot"></div>
-              <div id="start-chip" class="chip" hidden></div>
-            </div>
-
-            <nav class="tabs" role="tablist">
-              <button class="tab active" data-tab="combo" role="tab">找附近的組合</button>
-              <button class="tab" data-tab="stops" role="tab">規劃我的行程</button>
-            </nav>
-
-            <!-- Mode 1: search several things, pick one of each that are close together -->
-            <section id="tab-combo" class="tab-body">
+          <!-- Mode 1: group nearby places of each type into areas -->
+          <section id="tab-combo" class="tab-body">
+            <div id="combo-intro" class="intro">
+              <p class="intro-title">想在哪一帶一次逛完？</p>
               <p class="muted">
-                搜尋幾種不同類型的地點，我們會從每一類各挑一個，找出彼此最接近的組合。
-                搜尋結果以地圖目前顯示的範圍為主。
+                在上方搜尋或點選分類，加入幾種想去的地點。我們會把彼此相近的店家分成幾個區域，每個方案列出該區域內的多家同類型地點，方便你挑選。
               </p>
-              <form id="search-form" class="row">
-                <input id="search-input" placeholder="例如：拉麵、書店、全聯" autocomplete="off" />
-                <button type="submit">加入</button>
-              </form>
-              <ul id="search-list" class="list"></ul>
-              <div id="filter-box" class="filters" hidden>
-                <div class="filters-head">
-                  <span>篩選</span>
-                  <button id="clear-filters" class="link" type="button">全部清除</button>
-                </div>
-                <ul id="filter-list" class="list"></ul>
+            </div>
+            <div id="filter-box" class="filters" hidden>
+              <div class="filters-head">
+                <span>已套用的篩選</span>
+                <button id="clear-filters" class="text-btn" type="button">全部清除</button>
               </div>
-              <button id="find-combos" class="primary" type="button" disabled>找出最近的組合</button>
-              <div id="combo-results"></div>
-            </section>
+              <div id="filter-list" class="filter-chips"></div>
+            </div>
+            <div id="combo-results" class="results"></div>
+          </section>
 
-            <!-- Mode 2: places already chosen, find the shortest order -->
-            <section id="tab-stops" class="tab-body" hidden>
-              <p class="muted">加入你想去的特定地點，我們會找出移動距離最短的順序。</p>
-              <div id="stop-slot" class="ac-slot"></div>
-              <ul id="stop-list" class="list"></ul>
-              <button id="plan-route" class="primary" type="button" disabled>規劃最短路線</button>
-              <div id="route-results"></div>
-            </section>
+          <!-- Mode 2: places already chosen, find the shortest order -->
+          <section id="tab-stops" class="tab-body" hidden>
+            <p class="muted">加入你想去的特定地點，我們會找出移動距離最短的順序。</p>
+            <div id="stop-slot" class="ac-slot"></div>
+            <ul id="stop-list" class="stop-list"></ul>
+            <button id="plan-route" class="btn filled wide" type="button" disabled>規劃最短路線</button>
+            <div id="route-results" class="results"></div>
+          </section>
 
-            <p class="footnote">
-              距離為直線估算，僅用於排序。點「在 Google 地圖中開啟」可取得實際路線。
-            </p>
-          </div>
+          <p class="footnote">距離為直線估算，僅用於排序。點「路線」可在 Google 地圖取得實際路線。</p>
         </div>
       </aside>
 
+      <!-- Menu drawer: settings -->
+      <div id="drawer" class="drawer" hidden>
+        <div class="scrim" data-close></div>
+        <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+          <div class="drawer-head">
+            <h1 id="drawer-title">我該去哪裡</h1>
+            <button class="icon-btn" type="button" aria-label="關閉" data-close>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
+            </button>
+          </div>
+          <div class="drawer-body">
+            <div class="field">
+              <span class="field-label">起點 <span class="muted">（選填，例如你的飯店）</span></span>
+              <div id="start-slot" class="ac-slot"></div>
+            </div>
+            <div class="field">
+              <span class="field-label">交通方式</span>
+              <div id="travel-mode" class="segmented" role="radiogroup" data-value="walking">
+                <button type="button" role="radio" data-value="walking">步行</button>
+                <button type="button" role="radio" data-value="driving">開車</button>
+                <button type="button" role="radio" data-value="transit">大眾運輸</button>
+                <button type="button" role="radio" data-value="bicycling">自行車</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="field-label">距離單位</span>
+              <div id="units" class="segmented" role="radiogroup" data-value="km">
+                <button type="button" role="radio" data-value="km">公里</button>
+                <button type="button" role="radio" data-value="mi">英里</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="field-label">外觀</span>
+              <div id="theme" class="segmented" role="radiogroup" data-value="auto">
+                <button type="button" role="radio" data-value="auto">自動</button>
+                <button type="button" role="radio" data-value="light">淺色</button>
+                <button type="button" role="radio" data-value="dark">深色</button>
+              </div>
+            </div>
+            <hr />
+            <button id="change-key" class="text-btn" type="button">更換 API 金鑰</button>
+          </div>
+        </div>
+      </div>
     </main>
 
     <script type="module" src="src/app.js"></script>
