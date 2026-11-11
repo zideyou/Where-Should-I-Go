@@ -203,3 +203,16 @@ export function directionsUrl(points, travelmode = "walking") {
   }
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
+
+/**
+ * Apply the user's place filters to candidate groups before combining.
+ * Excluded places are dropped. If a group has pinned ("keep") places,
+ * only those are used for that group. Places are matched by `placeId`.
+ */
+export function filterGroups(groups, { excluded = new Set(), pinned = new Set() } = {}) {
+  return groups.map((g) => {
+    const kept = g.filter((p) => !excluded.has(p.placeId));
+    const pins = kept.filter((p) => pinned.has(p.placeId));
+    return pins.length ? pins : kept;
+  });
+}

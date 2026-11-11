@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bestCombos, bestRoute, directionsUrl, formatKm, haversineKm } from "../src/geo.js";
+import { bestCombos, bestRoute, directionsUrl, filterGroups, formatKm, haversineKm } from "../src/geo.js";
 
 test("haversine: known distance (Times Square -> Central Park south ~1.3 km)", () => {
   const km = haversineKm({ lat: 40.758, lng: -73.9855 }, { lat: 40.7681, lng: -73.9819 });
@@ -85,4 +85,17 @@ test("directionsUrl builds a Google Maps link with waypoints", () => {
   assert.equal(url.searchParams.get("waypoints"), "3,4");
   assert.equal(url.searchParams.get("waypoint_place_ids"), "B");
   assert.equal(url.searchParams.get("travelmode"), "walking");
+});
+
+test("filterGroups: excluded places are dropped, pinned places replace their group", () => {
+  const a = [{ placeId: "a1" }, { placeId: "a2" }, { placeId: "a3" }];
+  const b = [{ placeId: "b1" }, { placeId: "b2" }];
+  const out = filterGroups([a, b], { excluded: new Set(["a1", "b2"]), pinned: new Set(["a3"]) });
+  assert.deepEqual(out.map((g) => g.map((p) => p.placeId)), [["a3"], ["b1"]]);
+});
+
+test("filterGroups: a group can become empty, and no filters keeps everything", () => {
+  const a = [{ placeId: "a1" }];
+  assert.deepEqual(filterGroups([a], { excluded: new Set(["a1"]) }), [[]]);
+  assert.deepEqual(filterGroups([a]), [a]);
 });
