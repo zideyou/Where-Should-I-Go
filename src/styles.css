@@ -157,6 +157,14 @@ a { color: var(--accent); }
 .result .addr { color: var(--muted); font-size: 0.75rem; display: block; }
 .result > a { display: inline-block; margin-top: 8px; font-size: 0.875rem; }
 
+/* Combo filters */
+.filters { display: grid; gap: 6px; }
+.filters-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--muted); }
+.filters .tag { font-size: 0.75rem; white-space: nowrap; }
+.filter-btns { display: flex; gap: 6px; margin: 4px 0 2px; }
+.filter-btn { padding: 2px 10px; font-size: 0.75rem; border-radius: 999px; }
+.filter-btn.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+
 /* Google Maps place details inside the selected result */
 .details { display: grid; gap: 4px; margin: 6px 0 4px; font-size: 0.8125rem; cursor: auto; }
 .details .photo { display: block; width: 100%; max-width: 280px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; background: var(--panel); }

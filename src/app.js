@@ -1,4 +1,4 @@
-import { bestCombos, bestRoute, directionsUrl, formatKm, haversineKm } from "./geo.js";
+import { bestCombos, bestRoute, directionsUrl, filterGroups, formatKm, haversineKm } from "./geo.js";
 
 const KEY_STORAGE = "wsig.mapsApiKey";
 const GROUP_COLORS = ["#1a73e8", "#e8710a", "#188038", "#a142f4", "#d93025", "#12b5cb", "#f9ab00", "#e52592"];
@@ -30,6 +30,8 @@ const $ = (id) => document.getElementById(id);
 const state = {
   start: null, // { name, address, lat, lng, placeId }
   searches: [], // { query, color, places: [...] }
+  excluded: new Map(), // placeId -> place: never use in combos
+  pinned: new Map(), // placeId -> place: only use these for their search
   stops: [], // [{ name, address, lat, lng, placeId }]
   markers: [],
   line: null,
@@ -152,6 +154,11 @@ async function boot(apiKey) {
   $("search-form").onsubmit = onAddSearch;
   $("search-here").onclick = onSearchHere;
   $("find-combos").onclick = onFindCombos;
+  $("clear-filters").onclick = () => {
+    state.excluded.clear();
+    state.pinned.clear();
+    afterFilterChange();
+  };
   $("plan-route").onclick = onPlanRoute;
   $("units").onchange = () => rerender();
   $("travel-mode").onchange = () => rerender();
@@ -259,6 +266,7 @@ async function onSearchHere() {
     );
     state.searches.forEach((s, i) => (s.places = results[i]));
     state.lastCombos = null;
+    state.combosRequested = false;
     $("combo-results").replaceChildren();
     renderSearches();
     showSearchResults({ fit: false });
@@ -284,6 +292,8 @@ function renderSearches() {
       li.querySelector(".muted").textContent = `${s.places.length} 個結果`;
       li.querySelector(".x").onclick = () => {
         state.searches.splice(i, 1);
+        state.combosRequested = false;
+        state.lastCombos = null;
         state.searches.forEach((g, j) => (g.color = GROUP_COLORS[j % GROUP_COLORS.length]));
         $("combo-results").replaceChildren();
         renderSearches();
@@ -310,12 +320,24 @@ function showSearchResults({ fit = true } = {}) {
 }
 
 function onFindCombos() {
-  const groups = state.searches.map((s) => s.places);
+  state.combosRequested = true;
+  const groups = filterGroups(
+    state.searches.map((s) => s.places),
+    { excluded: new Set(state.excluded.keys()), pinned: new Set(state.pinned.keys()) },
+  );
+  const empty = state.searches.filter((_, i) => !groups[i].length).map((s) => `「${s.query}」`);
+  if (empty.length) {
+    state.lastCombos = null;
+    $("combo-results").replaceChildren();
+    setStatus(`${empty.join("、")} 的地點都被排除了，請移除一些篩選。`, true);
+    return;
+  }
   const combos = bestCombos(groups, { start: state.start, limit: 5 });
   if (!combos.length) {
     setStatus("找不到任何組合。", true);
     return;
   }
+  state.lastGroups = groups;
   state.lastCombos = combos;
   renderCombos(0);
   setStatus(`顯示距離最近的 ${combos.length} 個組合。`);
@@ -326,7 +348,7 @@ function renderCombos(selected) {
   const box = $("combo-results");
   box.replaceChildren(
     ...combos.map((c, idx) => {
-      const stops = c.order.map((g) => ({ ...state.searches[g].places[c.picks[g]], group: state.searches[g] }));
+      const stops = c.order.map((g) => ({ ...state.lastGroups[g][c.picks[g]], group: state.searches[g] }));
       const card = resultCard(`方案 ${idx + 1}`, c.km, stops, idx === selected);
       card.onclick = (e) => {
         if (e.target.tagName !== "A") renderCombos(idx);
@@ -335,7 +357,7 @@ function renderCombos(selected) {
     }),
   );
   const c = combos[selected];
-  const stops = c.order.map((g) => ({ ...state.searches[g].places[c.picks[g]], group: state.searches[g] }));
+  const stops = c.order.map((g) => ({ ...state.lastGroups[g][c.picks[g]], group: state.searches[g] }));
   drawRoute(stops);
 }
 
@@ -402,6 +424,7 @@ function resultCard(title, km, stops, selected) {
     addr.className = "addr";
     addr.textContent = s.address;
     li.append(addr);
+    if (selected && s.group) li.append(filterButtons(s));
     if (selected) li.append(placeDetails(s.placeId));
     if (prev) {
       const leg = document.createElement("span");
@@ -421,6 +444,69 @@ function resultCard(title, km, stops, selected) {
   link.textContent = "在 Google 地圖中開啟 →";
   card.append(link);
   return card;
+}
+
+// ---------- combo filters (exclude / keep places) ----------
+function filterButtons(place) {
+  const row = document.createElement("div");
+  row.className = "filter-btns";
+  row.onclick = (e) => e.stopPropagation();
+  const make = (label, title, on, toggle) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "filter-btn" + (on ? " on" : "");
+    b.textContent = label;
+    b.title = title;
+    b.setAttribute("aria-pressed", String(on));
+    b.onclick = toggle;
+    return b;
+  };
+  const { placeId } = place;
+  const plain = { ...place };
+  delete plain.group;
+  plain.query = place.group.query;
+  row.append(
+    make("📌 保留", "組合時這個搜尋只用這個地點", state.pinned.has(placeId), () => {
+      if (state.pinned.delete(placeId)) return afterFilterChange();
+      state.excluded.delete(placeId);
+      state.pinned.set(placeId, plain);
+      afterFilterChange();
+    }),
+    make("🚫 排除", "組合時不要用這個地點", state.excluded.has(placeId), () => {
+      if (state.excluded.delete(placeId)) return afterFilterChange();
+      state.pinned.delete(placeId);
+      state.excluded.set(placeId, plain);
+      afterFilterChange();
+    }),
+  );
+  return row;
+}
+
+function renderFilters() {
+  const items = [
+    ...[...state.pinned.values()].map((p) => ({ p, kind: "pinned", label: "📌 保留" })),
+    ...[...state.excluded.values()].map((p) => ({ p, kind: "excluded", label: "🚫 排除" })),
+  ];
+  $("filter-box").hidden = !items.length;
+  $("filter-list").replaceChildren(
+    ...items.map(({ p, kind, label }) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="tag"></span><span class="grow"></span><button class="x" title="移除">✕</button>`;
+      li.querySelector(".tag").textContent = label;
+      li.querySelector(".grow").textContent = `${p.name}（${p.query}）`;
+      li.querySelector(".x").onclick = () => {
+        (kind === "pinned" ? state.pinned : state.excluded).delete(p.placeId);
+        afterFilterChange();
+      };
+      return li;
+    }),
+  );
+}
+
+/** Re-render the filter list and, if combos are showing, recompute them. */
+function afterFilterChange() {
+  renderFilters();
+  if (state.combosRequested) onFindCombos();
 }
 
 // ---------- Google Maps place details ----------
