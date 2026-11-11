@@ -34,6 +34,8 @@ const ICONS = {
   pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 9V4h1V2H7v2h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3"/></svg>',
   block: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2M4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.9 7.9 0 0 1 4 12m8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.9 7.9 0 0 1 20 12c0 4.42-3.58 8-8 8"/></svg>',
   directions: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.71 11.29l-9-9a1 1 0 0 0-1.42 0l-9 9a1 1 0 0 0 0 1.42l9 9a1 1 0 0 0 1.42 0l9-9a1 1 0 0 0 0-1.42M14 14.5V12h-4v3H8v-4c0-.55.45-1 1-1h5V7.5l3.5 3.5z"/></svg>',
+  bookmark: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2m0 15-5-2.18L7 18V5h10z"/></svg>',
+  bookmarked: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2"/></svg>',
   home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>',
 };
 
@@ -211,11 +213,15 @@ function selectTab(name) {
   });
   $("tab-combo").hidden = name !== "combo";
   $("tab-stops").hidden = name !== "stops";
+  $("tab-saved").hidden = name !== "saved";
   $("search-here").hidden = true;
   closePopup();
   setStatus("");
   if (name === "combo") showAreasOrSearches();
-  else renderStops();
+  else if (name === "saved") {
+    clearMap();
+    renderSaved();
+  } else renderStops();
 }
 
 // ---------- map + theme ----------
@@ -272,7 +278,7 @@ function applyTheme() {
     else if (state.start) addStartMarker();
   } else if (state.lastRoute && $("route-results").childElementCount) {
     drawRoute(state.lastRoute.visit, { fit: false });
-  } else {
+  } else if ($("tab-saved").hidden) {
     renderStops({ fit: false });
   }
 }
@@ -632,7 +638,7 @@ function renderPopup() {
   const body = document.createElement("div");
   body.className = "popup-body";
   body.append(...areaGroups(area));
-  const actions = actionsRow(route.visit);
+  const actions = actionsRow(route.visit, area);
   const more = document.createElement("button");
   more.type = "button";
   more.className = "btn";
@@ -754,7 +760,7 @@ function areaCard(area, idx, selected) {
         return `${i + 1}. ${p.name}${d}`;
       })
       .join(" → ");
-  card.append(legs, actionsRow(route.visit));
+  card.append(legs, actionsRow(route.visit, area));
   return card;
 }
 
@@ -817,7 +823,8 @@ function areaGroups(area, { details = false } = {}) {
 
 }
 
-function actionsRow(stops) {
+/** Directions link, plus a save / unsave button when `area` is a plan. */
+function actionsRow(stops, area = null) {
   const row = document.createElement("div");
   row.className = "area-actions";
   const go = document.createElement("a");
@@ -827,7 +834,146 @@ function actionsRow(stops) {
   go.rel = "noopener";
   go.innerHTML = `${ICONS.directions}<span>路線</span>`;
   row.append(go);
+  if (area) {
+    const saved = findSaved(area);
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn" + (saved ? " on" : "");
+    b.setAttribute("aria-pressed", String(Boolean(saved)));
+    b.innerHTML = `${saved ? ICONS.bookmarked : ICONS.bookmark}<span>${saved ? "已儲存" : "儲存"}</span>`;
+    b.title = saved ? "從「已儲存」移除" : "儲存這個方案，之後可在「已儲存」查看";
+    b.onclick = (e) => {
+      e.stopPropagation();
+      if (saved) {
+        writeSaved(loadSaved().filter((p) => p.id !== saved.id));
+        setStatus("已從「已儲存」移除這個方案。");
+      } else saveArea(area);
+      renderAreas({ fit: false });
+    };
+    row.append(b);
+  }
   return row;
+}
+
+// ---------- saved plans (localStorage) ----------
+const SAVED_STORAGE = "wsig.savedPlans";
+
+function loadSaved() {
+  try {
+    const list = JSON.parse(localStorage.getItem(SAVED_STORAGE) || "[]");
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSaved(list) {
+  try {
+    localStorage.setItem(SAVED_STORAGE, JSON.stringify(list));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Identifies a plan by the places chosen for it. */
+const areaKey = (area) => area.choice.map((i, g) => state.groups[g][i].placeId).join("|");
+const findSaved = (area) => loadSaved().find((p) => p.key === areaKey(area));
+
+function saveArea(area) {
+  const first = state.groups[0][area.choice[0]];
+  const plan = {
+    id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    key: areaKey(area),
+    savedAt: Date.now(),
+    title: `${first.name} 一帶`,
+    searches: state.searches.map((s) => ({ query: s.query, color: s.color })),
+    // The places listed for each type, and which one was chosen.
+    members: area.members.map((m, g) => m.map((i) => state.groups[g][i])),
+    choice: area.choice.map((i, g) => area.members[g].indexOf(i)),
+    center: area.center,
+    radiusKm: area.radiusKm,
+    start: state.start,
+    travelMode: segValue("travel-mode"),
+  };
+  if (writeSaved([plan, ...loadSaved()])) setStatus(`已儲存「${plan.title}」，可在「已儲存」分頁隨時查看。`);
+  else setStatus("無法儲存：這個瀏覽器不允許儲存資料（可能是私密瀏覽模式）。", true);
+}
+
+function renderSaved() {
+  const list = loadSaved();
+  $("saved-empty").hidden = list.length > 0;
+  $("saved-list").replaceChildren(
+    ...list.map((plan) => {
+      const card = document.createElement("article");
+      card.className = "area-card saved-card";
+      const head = document.createElement("div");
+      head.className = "area-head";
+      head.innerHTML = `<span class="area-badge">${ICONS.bookmarked}</span><div class="grow"><div class="area-title"></div><div class="area-sub"></div></div>`;
+      head.querySelector(".area-title").textContent = plan.title;
+      const when = new Date(plan.savedAt).toLocaleString("zh-TW", { dateStyle: "medium", timeStyle: "short" });
+      head.querySelector(".area-sub").textContent = `儲存於 ${when}` + (plan.start ? ` · 起點 ${plan.start.name}` : "");
+      const summary = document.createElement("div");
+      summary.className = "area-summary";
+      plan.searches.forEach((s, g) => {
+        const chip = document.createElement("span");
+        chip.className = "mini-chip";
+        chip.innerHTML = `<span class="dot"></span><span></span>`;
+        chip.querySelector(".dot").style.background = s.color;
+        chip.lastChild.textContent = `${s.query}：${plan.members[g][plan.choice[g]]?.name ?? ""}`;
+        summary.append(chip);
+      });
+      const actions = document.createElement("div");
+      actions.className = "area-actions";
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "btn filled";
+      open.textContent = "開啟";
+      open.onclick = (e) => {
+        e.stopPropagation();
+        openSaved(plan);
+      };
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn";
+      del.textContent = "刪除";
+      del.onclick = (e) => {
+        e.stopPropagation();
+        writeSaved(loadSaved().filter((p) => p.id !== plan.id));
+        renderSaved();
+        setStatus(`已刪除「${plan.title}」。`);
+      };
+      actions.append(open, del);
+      card.append(head, summary, actions);
+      card.onclick = () => openSaved(plan);
+      return card;
+    }),
+  );
+}
+
+/** Load a saved plan back into the 附近區域 tab, exactly as it was saved. */
+function openSaved(plan) {
+  if (!map) return;
+  state.searches = plan.searches.map((s, g) => ({ ...s, places: plan.members[g] }));
+  state.groups = plan.members;
+  state.start = plan.start || null;
+  state.excluded.clear();
+  state.pinned.clear();
+  renderFilters();
+  const members = plan.members.map((m) => m.map((_, i) => i));
+  const choice = plan.choice.map((c) => Math.max(0, c));
+  state.areas = [{ center: plan.center, radiusKm: plan.radiusKm, members, picks: choice.slice(), choice, order: [], km: 0 }];
+  state.areaSel = 0;
+  const mode = $("travel-mode");
+  if (plan.travelMode) {
+    mode.dataset.value = plan.travelMode;
+    mode.querySelectorAll("button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.value === plan.travelMode)));
+  }
+  renderChips();
+  selectTab("combo");
+  $("combo-intro").hidden = true;
+  renderAreas({ fit: "selected" });
+  setStatus(`已開啟儲存的方案「${plan.title}」。按「在此區域搜尋」可以重新搜尋這一帶。`);
 }
 
 // ---------- mode 2: plan my stops ----------

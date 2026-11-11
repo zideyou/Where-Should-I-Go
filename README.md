@@ -11,6 +11,8 @@ Type a kind of place into the search bar, or tap a category chip under it (`拉�
 - draws **every area as a circle on the map**, labelled 方案 1, 方案 2…; click a circle or its label to open a popup with that plan's filter options (choose a place, keep 📌 or exclude 🚫)
 - has a **路線** button that opens real directions in Google Maps
 
+Press **儲存** on a plan (in its card or the map popup) to keep it; the **已儲存** tab lists saved plans so you can reopen them any time, exactly as saved (places, choices, starting point, travel mode). Saved plans live in this browser's localStorage.
+
 Areas never share places, so each plan really is a different neighbourhood. You can keep (📌) or exclude (🚫) a place, and "在此區域搜尋" re-runs the searches inside the visible map.
 
 ### 2. Plan my stops

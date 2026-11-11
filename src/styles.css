@@ -411,6 +411,10 @@ button:disabled { opacity: 0.38; cursor: default; }
 .filter-btn.on.keep { color: var(--blue); background: var(--blue-tint); }
 .filter-btn.on.drop { color: var(--red); background: var(--red-tint); }
 
+.btn.on { background: var(--blue-tint); color: var(--on-tint); border-color: transparent; }
+.saved-card { cursor: pointer; }
+.saved-card .area-badge svg { width: 16px; height: 16px; fill: currentColor; }
+.saved-card .area-summary { padding-left: 56px; }
 .area-actions, .route-actions { display: flex; gap: 8px; padding: 8px 16px 14px; border-top: 1px solid var(--divider); flex-wrap: wrap; align-items: center; }
 .route-legs { color: var(--text-2); font-size: 0.8125rem; padding: 10px 16px 0; border-top: 1px solid var(--divider); line-height: 1.6; }
 

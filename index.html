@@ -70,6 +70,7 @@
           <nav class="tabs" role="tablist">
             <button class="tab active" data-tab="combo" role="tab" type="button">附近區域</button>
             <button class="tab" data-tab="stops" role="tab" type="button">規劃行程</button>
+            <button class="tab" data-tab="saved" role="tab" type="button">已儲存</button>
           </nav>
           <p id="status" class="status" role="status"></p>
 
@@ -92,6 +93,12 @@
           </section>
 
           <!-- Mode 2: places already chosen, find the shortest order -->
+          <!-- Saved plans (kept in this browser) -->
+          <section id="tab-saved" class="tab-body" hidden>
+            <p id="saved-empty" class="muted">還沒有儲存的方案。在方案卡片或地圖上的彈出卡片按「儲存」，之後就能在這裡隨時打開查看。</p>
+            <div id="saved-list" class="results"></div>
+          </section>
+
           <section id="tab-stops" class="tab-body" hidden>
             <p class="muted">加入你想去的特定地點，我們會找出移動距離最短的順序。</p>
             <div id="stop-slot" class="ac-slot"></div>
