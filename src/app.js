@@ -6,6 +6,22 @@ const GROUP_COLORS = ["#1a73e8", "#e8710a", "#188038", "#a142f4", "#d93025", "#1
 // zh-TW = Traditional Chinese; TW biases results and formatting toward Taiwan.
 const MAPS_LANGUAGE = "zh-TW";
 const MAPS_REGION = "TW";
+// Extra Google Maps details, fetched only for places shown in the selected result.
+const DETAIL_FIELDS = [
+  "photos",
+  "rating",
+  "userRatingCount",
+  "priceLevel",
+  "primaryTypeDisplayName",
+  "editorialSummary",
+  "businessStatus",
+  "regularOpeningHours",
+  "utcOffsetMinutes",
+  "nationalPhoneNumber",
+  "websiteURI",
+  "googleMapsURI",
+];
+const PRICE_LEVELS = { FREE: "免費", INEXPENSIVE: "$", MODERATE: "$$", EXPENSIVE: "$$$", VERY_EXPENSIVE: "$$$$" };
 const PLACE_FIELDS = ["id", "displayName", "formattedAddress", "location", "rating", "googleMapsURI"];
 const MAX_SEARCHES = 6;
 
@@ -94,8 +110,14 @@ async function boot(apiKey) {
       mapTypeControl: false,
       streetViewControl: false,
     });
+    // Offer "search this area" when the user (not the app) moves the map.
+    map.addListener("dragend", onUserMovedMap);
+    map.addListener("zoom_changed", () => {
+      if (!programmaticMove) onUserMovedMap();
+    });
+    map.addListener("idle", () => (programmaticMove = false));
     navigator.geolocation?.getCurrentPosition(
-      (pos) => map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) => moveMap(() => map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude })),
       () => {},
       { timeout: 5000 },
     );
@@ -107,7 +129,7 @@ async function boot(apiKey) {
   setupAutocomplete($("start-slot"), (place) => {
     state.start = place;
     renderStart();
-    map.panTo(place);
+    moveMap(() => map.panTo(place));
   });
   setupAutocomplete($("stop-slot"), (place) => {
     if (state.stops.some((s) => s.placeId === place.placeId)) return;
@@ -120,12 +142,15 @@ async function boot(apiKey) {
       document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
       $("tab-combo").hidden = tab.dataset.tab !== "combo";
       $("tab-stops").hidden = tab.dataset.tab !== "stops";
+      $("search-here").hidden = true;
       clearMap();
       setStatus("");
     };
   });
 
+  $("panel-toggle").onclick = () => setPanelOpen($("panel").classList.contains("collapsed"));
   $("search-form").onsubmit = onAddSearch;
+  $("search-here").onclick = onSearchHere;
   $("find-combos").onclick = onFindCombos;
   $("plan-route").onclick = onPlanRoute;
   $("units").onchange = () => rerender();
@@ -163,6 +188,24 @@ function toPlain(place) {
 }
 
 // ---------- mode 1: nearby combos ----------
+/**
+ * Text search. `area` is { locationBias } to prefer the visible map, or
+ * { locationRestriction } to only return places inside it.
+ */
+async function searchPlaces(query, area) {
+  // Newer Maps JS versions renamed Place.searchText to Place.searchByText.
+  const search = lib.Place.searchByText ?? lib.Place.searchText;
+  const { places } = await search.call(lib.Place, {
+    textQuery: query,
+    fields: PLACE_FIELDS,
+    language: MAPS_LANGUAGE,
+    region: MAPS_REGION,
+    maxResultCount: 20,
+    ...area,
+  });
+  return (places || []).map(toPlain);
+}
+
 async function onAddSearch(e) {
   e.preventDefault();
   const query = $("search-input").value.trim();
@@ -173,28 +216,60 @@ async function onAddSearch(e) {
   }
   setStatus(`正在搜尋「${query}」…`);
   try {
-    // Newer Maps JS versions renamed Place.searchText to Place.searchByText.
-    const search = lib.Place.searchByText ?? lib.Place.searchText;
-    const { places } = await search.call(lib.Place, {
-      textQuery: query,
-      fields: PLACE_FIELDS,
-      language: MAPS_LANGUAGE,
-      region: MAPS_REGION,
-      locationBias: map.getBounds(),
-      maxResultCount: 20,
-    });
-    if (!places?.length) {
+    const places = await searchPlaces(query, { locationBias: map.getBounds() });
+    if (!places.length) {
       setStatus(`這附近找不到「${query}」。請試著移動地圖或換個關鍵字。`, true);
       return;
     }
     const color = GROUP_COLORS[state.searches.length % GROUP_COLORS.length];
-    state.searches.push({ query, color, places: places.map(toPlain) });
+    state.searches.push({ query, color, places });
     $("search-input").value = "";
     setStatus(`找到 ${places.length} 個「${query}」。`);
     renderSearches();
     showSearchResults();
   } catch (err) {
     setStatus(`搜尋失敗：${err.message}`, true);
+  }
+}
+
+// ---------- "search this area" ----------
+let programmaticMove = false;
+
+/** Run a map move made by the app, so it doesn't show the "search this area" button. */
+function moveMap(fn) {
+  programmaticMove = true;
+  // Fallback in case the move doesn't change the view and no "idle" event follows.
+  setTimeout(() => (programmaticMove = false), 1500);
+  fn();
+}
+
+function onUserMovedMap() {
+  $("search-here").hidden = $("tab-combo").hidden || !state.searches.length;
+}
+
+/** Re-run every current search, limited to the visible map area. */
+async function onSearchHere() {
+  const btn = $("search-here");
+  btn.disabled = true;
+  setStatus("正在此區域重新搜尋…");
+  try {
+    const bounds = map.getBounds();
+    const results = await Promise.all(
+      state.searches.map((s) => searchPlaces(s.query, { locationRestriction: bounds })),
+    );
+    state.searches.forEach((s, i) => (s.places = results[i]));
+    state.lastCombos = null;
+    $("combo-results").replaceChildren();
+    renderSearches();
+    showSearchResults({ fit: false });
+    btn.hidden = true;
+    const empty = state.searches.filter((s) => !s.places.length).map((s) => `「${s.query}」`);
+    if (empty.length) setStatus(`此區域找不到 ${empty.join("、")}。請移動地圖或縮小地圖再試一次。`, true);
+    else setStatus(`已更新此區域的結果：${state.searches.map((s) => `${s.query} ${s.places.length} 個`).join("、")}。`);
+  } catch (err) {
+    setStatus(`搜尋失敗：${err.message}`, true);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -218,9 +293,10 @@ function renderSearches() {
     }),
   );
   $("find-combos").disabled = state.searches.length < 2 && !(state.searches.length === 1 && state.start);
+  if (!state.searches.length) $("search-here").hidden = true;
 }
 
-function showSearchResults() {
+function showSearchResults({ fit = true } = {}) {
   clearMap();
   const all = [];
   state.searches.forEach((s) =>
@@ -230,7 +306,7 @@ function showSearchResults() {
     }),
   );
   if (state.start) addStartMarker();
-  fitTo(state.start ? [state.start, ...all] : all);
+  if (fit) fitTo(state.start ? [state.start, ...all] : all);
 }
 
 function onFindCombos() {
@@ -326,6 +402,7 @@ function resultCard(title, km, stops, selected) {
     addr.className = "addr";
     addr.textContent = s.address;
     li.append(addr);
+    if (selected) li.append(placeDetails(s.placeId));
     if (prev) {
       const leg = document.createElement("span");
       leg.className = "leg";
@@ -344,6 +421,122 @@ function resultCard(title, km, stops, selected) {
   link.textContent = "在 Google 地圖中開啟 →";
   card.append(link);
   return card;
+}
+
+// ---------- Google Maps place details ----------
+const detailsCache = new Map(); // placeId -> Promise<Place>
+
+function fetchDetails(placeId) {
+  if (!detailsCache.has(placeId)) {
+    const place = new lib.Place({ id: placeId });
+    const p = place.fetchFields({ fields: DETAIL_FIELDS }).then(() => place);
+    p.catch(() => detailsCache.delete(placeId)); // allow a retry next time
+    detailsCache.set(placeId, p);
+  }
+  return detailsCache.get(placeId);
+}
+
+/** A details block that fills itself in once the place's details arrive. */
+function placeDetails(placeId) {
+  const box = document.createElement("div");
+  box.className = "details";
+  box.onclick = (e) => e.stopPropagation(); // don't re-select the card when using the details
+  box.textContent = "正在載入地點資訊…";
+  fetchDetails(placeId)
+    .then((place) => renderDetails(box, place))
+    .catch((err) => {
+      box.textContent = `無法載入地點資訊：${err.message}`;
+      box.classList.add("meta");
+    });
+  return box;
+}
+
+async function renderDetails(box, place) {
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  const link = (href, text) => {
+    const a = el("a", "", text);
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener";
+    return a;
+  };
+  const parts = [];
+
+  const photo = place.photos?.[0];
+  if (photo) {
+    const img = el("img", "photo");
+    img.src = photo.getURI({ maxWidth: 720, maxHeight: 405 });
+    img.alt = place.displayName || "";
+    img.loading = "lazy";
+    parts.push(img);
+    const author = photo.authorAttributions?.[0];
+    if (author?.displayName) {
+      const credit = el("span", "credit", "相片：");
+      credit.append(author.uri ? link(author.uri, author.displayName) : author.displayName);
+      parts.push(credit);
+    }
+  }
+
+  const meta = el("div", "meta");
+  if (place.rating != null) {
+    meta.append(el("span", "stars", `★ ${place.rating.toFixed(1)}`));
+    if (place.userRatingCount) meta.append(` (${place.userRatingCount.toLocaleString("zh-TW")} 則評論)`);
+  }
+  const extra = [PRICE_LEVELS[place.priceLevel], place.primaryTypeDisplayName].filter(Boolean);
+  if (extra.length) meta.append(`${meta.childNodes.length ? " · " : ""}${extra.join(" · ")}`);
+  if (meta.childNodes.length) parts.push(meta);
+
+  const hours = place.regularOpeningHours;
+  const status = el("div");
+  if (place.businessStatus === "CLOSED_PERMANENTLY") status.append(el("span", "closed", "已永久停業"));
+  else if (place.businessStatus === "CLOSED_TEMPORARILY") status.append(el("span", "closed", "暫停營業"));
+  else if (hours) {
+    let open;
+    try {
+      open = await place.isOpen();
+    } catch {
+      open = undefined;
+    }
+    if (open === true) status.append(el("span", "open", "營業中"));
+    else if (open === false) status.append(el("span", "closed", "休息中"));
+  }
+  const days = hours?.weekdayDescriptions || [];
+  if (days.length) {
+    const today = (new Date().getDay() + 6) % 7; // weekdayDescriptions start on Monday
+    if (status.childNodes.length) status.append(" · ");
+    status.append(days[today] || "");
+    parts.push(status);
+    const all = el("details");
+    all.append(el("summary", "", "所有營業時間"));
+    const ul = el("ul");
+    days.forEach((d, i) => ul.append(el("li", i === today ? "today" : "", d)));
+    all.append(ul);
+    parts.push(all);
+  } else if (status.childNodes.length) {
+    parts.push(status);
+  }
+
+  if (place.editorialSummary) parts.push(el("p", "summary", place.editorialSummary));
+
+  const links = el("div", "links");
+  if (place.nationalPhoneNumber) links.append(link(`tel:${place.nationalPhoneNumber.replace(/\s+/g, "")}`, `☎ ${place.nationalPhoneNumber}`));
+  if (place.websiteURI) {
+    let host = place.websiteURI;
+    try {
+      host = new URL(place.websiteURI).hostname.replace(/^www\./, "");
+    } catch {}
+    links.append(link(place.websiteURI, `🌐 ${host}`));
+  }
+  if (place.googleMapsURI) links.append(link(place.googleMapsURI, "在 Google 地圖查看"));
+  if (links.childNodes.length) parts.push(links);
+
+  box.replaceChildren(...parts);
+  if (!parts.length) box.hidden = true;
 }
 
 function drawRoute(stops) {
@@ -422,12 +615,18 @@ function clearMap() {
 function fitTo(points) {
   if (!points.length) return;
   if (points.length === 1) {
-    map.panTo({ lat: points[0].lat, lng: points[0].lng });
+    moveMap(() => map.panTo({ lat: points[0].lat, lng: points[0].lng }));
     return;
   }
   const b = new lib.LatLngBounds();
   points.forEach((p) => b.extend({ lat: p.lat, lng: p.lng }));
-  map.fitBounds(b, 60);
+  moveMap(() => map.fitBounds(b, 60));
+}
+
+function setPanelOpen(open) {
+  $("panel").classList.toggle("collapsed", !open);
+  $("panel-toggle").setAttribute("aria-expanded", String(open));
+  $("panel-toggle-label").textContent = open ? "收起 ▾" : "展開 ▴";
 }
 
 function setStatus(msg, isError = false) {
