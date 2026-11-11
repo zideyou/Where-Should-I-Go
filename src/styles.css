@@ -103,7 +103,7 @@ a { color: var(--blue); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .muted, .hint { color: var(--text-2); line-height: 1.5; }
 /* Our own icons only — never touch SVGs inside the map. */
-:is(.topbar, .sheet, .drawer, .search-here) svg { width: 24px; height: 24px; fill: currentColor; flex: none; }
+:is(.topbar, .sheet, .drawer, .search-here, .area-popup) svg { width: 24px; height: 24px; fill: currentColor; flex: none; }
 
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -438,6 +438,51 @@ button:disabled { opacity: 0.38; cursor: default; }
 .details .links a { display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border: 1px solid var(--outline); border-radius: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .details .links a:hover { background: var(--blue-tint); text-decoration: none; }
 
+/* Area labels on the map */
+.area-pin {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  margin-bottom: 4px;
+  border: 2px solid var(--blue);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--blue);
+  font: 500 0.8125rem/1 Roboto, "Noto Sans TC", sans-serif;
+  white-space: nowrap;
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+}
+.area-pin:hover { background: var(--blue-tint); }
+.area-pin.selected { background: var(--blue); color: var(--on-blue); }
+
+/* Area popup: the filter options for one plan, over the map */
+.area-popup {
+  position: absolute;
+  z-index: 5;
+  top: 112px;
+  right: var(--gutter);
+  width: 360px;
+  max-height: calc(100% - 112px - 130px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+  animation: pop-in 0.15s ease-out;
+}
+@keyframes pop-in { from { opacity: 0; transform: translateY(-6px); } }
+.area-popup .area-head { align-items: center; padding: 8px 4px 8px 16px; border-bottom: 1px solid var(--divider); }
+.area-popup .area-head .grow { flex: 1; min-width: 0; }
+.area-popup .area-head .icon-btn { width: 40px; height: 40px; flex: none; }
+.area-popup:focus { outline: none; }
+.area-popup .area-badge { background: var(--blue); color: var(--on-blue); }
+.popup-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.popup-body .group:first-child { border-top: none; }
+.area-popup .area-actions { flex: none; }
+
 /* ---------- plan my stops ---------- */
 .ac-slot { min-width: 0; }
 .ac-slot gmp-place-autocomplete { display: block; width: 100%; max-width: 100%; }
@@ -498,6 +543,8 @@ button:disabled { opacity: 0.38; cursor: default; }
   .chips { width: auto; }
   .panel-toggle { display: none; }
   .search-here, .app.panel-closed .search-here { top: 112px; left: 50%; }
+  /* Docked just above the peeking bottom sheet, leaving the top of the map visible. */
+  .area-popup { top: auto; bottom: calc(max(132px, 18%) + 12px); left: var(--gutter); right: var(--gutter); width: auto; max-height: 50%; }
 
   .sheet {
     top: auto;
