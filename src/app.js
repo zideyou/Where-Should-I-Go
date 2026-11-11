@@ -1,4 +1,4 @@
-import { bestAreas, bestRoute, directionsUrl, filterGroups, formatKm, haversineKm } from "./geo.js";
+import { areaNameFromAddresses, bestAreas, stationLabel, bestRoute, directionsUrl, filterGroups, formatKm, haversineKm } from "./geo.js";
 
 const KEY_STORAGE = "wsig.mapsApiKey";
 const GROUP_COLORS = ["#1a73e8", "#e8710a", "#188038", "#a142f4", "#d93025", "#12b5cb", "#f9ab00", "#e52592"];
@@ -111,14 +111,14 @@ async function boot(apiKey) {
 
   try {
     await loadMapsScript(apiKey);
-    const [{ Map, Polyline, Circle }, { Place, PlaceAutocompleteElement }, { AdvancedMarkerElement, PinElement }, { LatLngBounds, ColorScheme }] =
+    const [{ Map, Polyline, Circle }, { Place, PlaceAutocompleteElement, SearchNearbyRankPreference }, { AdvancedMarkerElement, PinElement }, { LatLngBounds, ColorScheme }] =
       await Promise.all([
         google.maps.importLibrary("maps"),
         google.maps.importLibrary("places"),
         google.maps.importLibrary("marker"),
         google.maps.importLibrary("core"),
       ]);
-    lib = { Map, Polyline, Circle, Place, PlaceAutocompleteElement, AdvancedMarkerElement, PinElement, LatLngBounds, ColorScheme };
+    lib = { Map, Polyline, Circle, Place, PlaceAutocompleteElement, SearchNearbyRankPreference, AdvancedMarkerElement, PinElement, LatLngBounds, ColorScheme };
     createMap({ lat: 25.0478, lng: 121.517 }, 14); // 台北車站
     navigator.geolocation?.getCurrentPosition(
       (pos) => moveMap(() => map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude })),
@@ -561,6 +561,7 @@ function computeAreas({ msg = "", fit = true, error = false, keepSelection = fal
   state.groups = groups;
   state.areas = bestAreas(groups, { start: state.start, limit: MAX_AREAS, perGroup: PLACES_PER_TYPE });
   state.areas.forEach((a) => (a.choice = a.picks.slice()));
+  nameAreas(state.areas);
   state.areaSel = keepSelection ? Math.min(prevSel, state.areas.length - 1) : 0;
   if (!keepSelection || !state.areas.length) closePopup();
   if (!state.areas.length) {
@@ -619,6 +620,53 @@ function selectArea(idx, { popup = false, fit = "selected" } = {}) {
   if (popup) state.popupOpen = true;
   renderAreas({ fit });
   $("combo-results").children[idx]?.scrollIntoView?.({ block: "nearest" });
+}
+
+// ---------- area names: MRT station, else road, else district ----------
+const stationCache = new Map(); // rounded centre -> Promise<string|null>
+
+/** Nearest MRT / light-rail station inside (or just around) the area, via Places nearby search. */
+function nearestStation(area) {
+  const key = `${area.center.lat.toFixed(4)},${area.center.lng.toFixed(4)}`;
+  if (!stationCache.has(key)) {
+    const p = (async () => {
+      if (!lib.Place?.searchNearby) return null;
+      const { places } = await lib.Place.searchNearby({
+        fields: ["displayName"],
+        locationRestriction: { center: area.center, radius: Math.min(1500, Math.max(500, area.radiusKm * 1000)) },
+        includedPrimaryTypes: ["subway_station", "light_rail_station"],
+        maxResultCount: 1,
+        rankPreference: lib.SearchNearbyRankPreference?.DISTANCE ?? "DISTANCE",
+        language: MAPS_LANGUAGE,
+        region: MAPS_REGION,
+      });
+      return stationLabel(places?.[0]?.displayName);
+    })().catch(() => null);
+    stationCache.set(key, p);
+  }
+  return stationCache.get(key);
+}
+
+/** Name each area: road or district at once (from addresses), then the MRT station when found. */
+async function nameAreas(areas) {
+  areas.forEach((a) => {
+    const addresses = a.members.flatMap((m, g) => m.map((i) => state.groups[g][i].address));
+    a.name = areaNameFromAddresses(addresses) || a.name;
+  });
+  const stations = await Promise.all(areas.map(nearestStation));
+  if (state.areas !== areas) return; // results changed meanwhile
+  let changed = false;
+  const used = new Set();
+  stations.forEach((st, i) => {
+    // Two areas near the same station keep their road / district name instead.
+    if (!st || used.has(st)) return;
+    used.add(st);
+    if (areas[i].name !== st) {
+      areas[i].name = st;
+      changed = true;
+    }
+  });
+  if (changed && !$("tab-combo").hidden) renderAreas({ fit: false });
 }
 
 // ---------- area popup (opened from the map) ----------
@@ -712,7 +760,7 @@ function areaHead(area, idx, route = areaRoute(area)) {
         <div class="area-title"></div>
         <div class="area-sub"></div>
       </div>`;
-  head.querySelector(".area-title").textContent = `方案 ${idx + 1}・${first.name} 一帶`;
+  head.querySelector(".area-title").textContent = `方案 ${idx + 1}・${area.name || `${first.name} 一帶`}`;
   const sub = head.querySelector(".area-sub");
   const km = document.createElement("span");
   km.className = "km";
@@ -886,7 +934,7 @@ function saveArea(area) {
     id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
     key: areaKey(area),
     savedAt: Date.now(),
-    title: `${first.name} 一帶`,
+    title: area.name || `${first.name} 一帶`,
     searches: state.searches.map((s) => ({ query: s.query, color: s.color })),
     // The places listed for each type, and which one was chosen.
     members: area.members.map((m, g) => m.map((i) => state.groups[g][i])),
@@ -962,7 +1010,7 @@ function openSaved(plan) {
   renderFilters();
   const members = plan.members.map((m) => m.map((_, i) => i));
   const choice = plan.choice.map((c) => Math.max(0, c));
-  state.areas = [{ center: plan.center, radiusKm: plan.radiusKm, members, picks: choice.slice(), choice, order: [], km: 0 }];
+  state.areas = [{ name: plan.title, center: plan.center, radiusKm: plan.radiusKm, members, picks: choice.slice(), choice, order: [], km: 0 }];
   state.areaSel = 0;
   const mode = $("travel-mode");
   if (plan.travelMode) {
