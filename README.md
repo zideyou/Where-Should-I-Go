@@ -21,6 +21,8 @@ Both modes accept an optional **starting point** (set in the ☰ menu, together 
 ## Look and feel
 The interface follows the layout and visual style of the Google Maps app and website (it does not use Google's logo or trademarks): a floating rounded search bar at the top left, category chips below it, white Material-style cards, Roboto and blue `#1a73e8`. On desktop the results sit in a collapsible side panel; on phones they are in a bottom sheet you can drag between peek, half and full height.
 
+**Dark mode** follows the system setting by default; the ☰ menu has 自動 / 淺色 / 深色 to override it (saved in this browser). The map switches to its dark colour scheme too.
+
 ## Setup
 
 1. **Get a Google Maps API key.**
