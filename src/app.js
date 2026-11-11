@@ -94,8 +94,14 @@ async function boot(apiKey) {
       mapTypeControl: false,
       streetViewControl: false,
     });
+    // Offer "search this area" when the user (not the app) moves the map.
+    map.addListener("dragend", onUserMovedMap);
+    map.addListener("zoom_changed", () => {
+      if (!programmaticMove) onUserMovedMap();
+    });
+    map.addListener("idle", () => (programmaticMove = false));
     navigator.geolocation?.getCurrentPosition(
-      (pos) => map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) => moveMap(() => map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude })),
       () => {},
       { timeout: 5000 },
     );
@@ -107,7 +113,7 @@ async function boot(apiKey) {
   setupAutocomplete($("start-slot"), (place) => {
     state.start = place;
     renderStart();
-    map.panTo(place);
+    moveMap(() => map.panTo(place));
   });
   setupAutocomplete($("stop-slot"), (place) => {
     if (state.stops.some((s) => s.placeId === place.placeId)) return;
@@ -120,12 +126,14 @@ async function boot(apiKey) {
       document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
       $("tab-combo").hidden = tab.dataset.tab !== "combo";
       $("tab-stops").hidden = tab.dataset.tab !== "stops";
+      $("search-here").hidden = true;
       clearMap();
       setStatus("");
     };
   });
 
   $("search-form").onsubmit = onAddSearch;
+  $("search-here").onclick = onSearchHere;
   $("find-combos").onclick = onFindCombos;
   $("plan-route").onclick = onPlanRoute;
   $("units").onchange = () => rerender();
@@ -163,6 +171,24 @@ function toPlain(place) {
 }
 
 // ---------- mode 1: nearby combos ----------
+/**
+ * Text search. `area` is { locationBias } to prefer the visible map, or
+ * { locationRestriction } to only return places inside it.
+ */
+async function searchPlaces(query, area) {
+  // Newer Maps JS versions renamed Place.searchText to Place.searchByText.
+  const search = lib.Place.searchByText ?? lib.Place.searchText;
+  const { places } = await search.call(lib.Place, {
+    textQuery: query,
+    fields: PLACE_FIELDS,
+    language: MAPS_LANGUAGE,
+    region: MAPS_REGION,
+    maxResultCount: 20,
+    ...area,
+  });
+  return (places || []).map(toPlain);
+}
+
 async function onAddSearch(e) {
   e.preventDefault();
   const query = $("search-input").value.trim();
@@ -173,28 +199,60 @@ async function onAddSearch(e) {
   }
   setStatus(`正在搜尋「${query}」…`);
   try {
-    // Newer Maps JS versions renamed Place.searchText to Place.searchByText.
-    const search = lib.Place.searchByText ?? lib.Place.searchText;
-    const { places } = await search.call(lib.Place, {
-      textQuery: query,
-      fields: PLACE_FIELDS,
-      language: MAPS_LANGUAGE,
-      region: MAPS_REGION,
-      locationBias: map.getBounds(),
-      maxResultCount: 20,
-    });
-    if (!places?.length) {
+    const places = await searchPlaces(query, { locationBias: map.getBounds() });
+    if (!places.length) {
       setStatus(`這附近找不到「${query}」。請試著移動地圖或換個關鍵字。`, true);
       return;
     }
     const color = GROUP_COLORS[state.searches.length % GROUP_COLORS.length];
-    state.searches.push({ query, color, places: places.map(toPlain) });
+    state.searches.push({ query, color, places });
     $("search-input").value = "";
     setStatus(`找到 ${places.length} 個「${query}」。`);
     renderSearches();
     showSearchResults();
   } catch (err) {
     setStatus(`搜尋失敗：${err.message}`, true);
+  }
+}
+
+// ---------- "search this area" ----------
+let programmaticMove = false;
+
+/** Run a map move made by the app, so it doesn't show the "search this area" button. */
+function moveMap(fn) {
+  programmaticMove = true;
+  // Fallback in case the move doesn't change the view and no "idle" event follows.
+  setTimeout(() => (programmaticMove = false), 1500);
+  fn();
+}
+
+function onUserMovedMap() {
+  $("search-here").hidden = $("tab-combo").hidden || !state.searches.length;
+}
+
+/** Re-run every current search, limited to the visible map area. */
+async function onSearchHere() {
+  const btn = $("search-here");
+  btn.disabled = true;
+  setStatus("正在此區域重新搜尋…");
+  try {
+    const bounds = map.getBounds();
+    const results = await Promise.all(
+      state.searches.map((s) => searchPlaces(s.query, { locationRestriction: bounds })),
+    );
+    state.searches.forEach((s, i) => (s.places = results[i]));
+    state.lastCombos = null;
+    $("combo-results").replaceChildren();
+    renderSearches();
+    showSearchResults({ fit: false });
+    btn.hidden = true;
+    const empty = state.searches.filter((s) => !s.places.length).map((s) => `「${s.query}」`);
+    if (empty.length) setStatus(`此區域找不到 ${empty.join("、")}。請移動地圖或縮小地圖再試一次。`, true);
+    else setStatus(`已更新此區域的結果：${state.searches.map((s) => `${s.query} ${s.places.length} 個`).join("、")}。`);
+  } catch (err) {
+    setStatus(`搜尋失敗：${err.message}`, true);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -218,9 +276,10 @@ function renderSearches() {
     }),
   );
   $("find-combos").disabled = state.searches.length < 2 && !(state.searches.length === 1 && state.start);
+  if (!state.searches.length) $("search-here").hidden = true;
 }
 
-function showSearchResults() {
+function showSearchResults({ fit = true } = {}) {
   clearMap();
   const all = [];
   state.searches.forEach((s) =>
@@ -230,7 +289,7 @@ function showSearchResults() {
     }),
   );
   if (state.start) addStartMarker();
-  fitTo(state.start ? [state.start, ...all] : all);
+  if (fit) fitTo(state.start ? [state.start, ...all] : all);
 }
 
 function onFindCombos() {
@@ -422,12 +481,12 @@ function clearMap() {
 function fitTo(points) {
   if (!points.length) return;
   if (points.length === 1) {
-    map.panTo({ lat: points[0].lat, lng: points[0].lng });
+    moveMap(() => map.panTo({ lat: points[0].lat, lng: points[0].lng }));
     return;
   }
   const b = new lib.LatLngBounds();
   points.forEach((p) => b.extend({ lat: p.lat, lng: p.lng }));
-  map.fitBounds(b, 60);
+  moveMap(() => map.fitBounds(b, 60));
 }
 
 function setStatus(msg, isError = false) {
